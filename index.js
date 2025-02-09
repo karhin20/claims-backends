@@ -18,6 +18,11 @@ app.use(express.json());
 
 app.use('/api/auth', authRoutes);
 
+// New route to display a message in the browser
+app.get('/', (req, res) => {
+    res.send('<p>generated successfully.</p>');
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 }); 
