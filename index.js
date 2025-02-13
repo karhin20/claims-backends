@@ -11,18 +11,18 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Add allowed origins configuration
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  'http://localhost:8080',
-  'http://localhost:5173',
-  'https://claims-backends.vercel.app'
-];
-
-app.use(cors({
+// Update CORS configuration
+const corsOptions = {
   origin: function(origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      process.env.FRONTEND_URL,
+      'http://localhost:8080',
+      'http://localhost:5173',
+      'https://claims-backends.vercel.app'
+    ];
     
     if (allowedOrigins.indexOf(origin) === -1) {
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
@@ -32,9 +32,24 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
-  exposedHeaders: ['set-cookie']
-}));
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With'],
+  exposedHeaders: ['set-cookie'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+// Apply CORS before any route handlers
+app.use(cors(corsOptions));
+
+// Add specific CORS handling for auth routes
+app.use('/api/auth/*', (req, res, next) => {
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cookie');
+  next();
+});
+
+// Handle preflight requests for auth routes
+app.options('/api/auth/*', cors(corsOptions));
 
 app.use(cookieParser());
 app.use(express.json());
@@ -45,7 +60,7 @@ const limiter = rateLimit({
   max: 100 // limit each IP to 100 requests per windowMs
 });
 
-// Apply to all routes
+// Apply rate limiting after CORS
 app.use(limiter);
 
 // Specific limiter for OTP generation
