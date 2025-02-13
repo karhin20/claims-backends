@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase.js';
+import otpGenerator from 'otp-generator';
 
 // Add input validation
 const validateClaimInput = (data) => {
@@ -164,9 +165,14 @@ export const updateClaim = async (req, res) => {
   }
 };
 
-// Utility function to generate OTP
+// Replace the simple generateOTP function with this more secure version
 const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return otpGenerator.generate(6, {
+    digits: true,
+    alphabets: false,
+    upperCase: false,
+    specialChars: false
+  });
 };
 
 // Store OTP with expiration (we'll add this to the claims table)
