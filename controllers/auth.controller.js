@@ -27,35 +27,53 @@ export const signUp = async (req, res) => {
 
     if (error) throw error;
 
-    // Insert additional user data into AdminStaff table
-    const { error: profileError } = await supabase
-      .from('AdminStaff')
-      .insert([
-        {
-          user_id: data.user?.id,
-          name,
-          role,
-          email,
-          phone,
-        }
-      ]);
+    // Check if user needs to confirm their email
+    if (data.user && data.user.identities && data.user.identities.length === 0) {
+      return res.status(400).json({
+        message: 'Email confirmation required. Please check your email.'
+      });
+    }
 
-    if (profileError) throw profileError;
+    // Only proceed with AdminStaff creation if email is confirmed
+    if (data.user && data.user.confirmed_at) {
+      // Insert additional user data into AdminStaff table
+      const { error: profileError } = await supabase
+        .from('AdminStaff')
+        .insert([
+          {
+            user_id: data.user.id,
+            name,
+            role,
+            email,
+            phone,
+          }
+        ]);
 
-    // Set session cookie with proper security settings
+      if (profileError) throw profileError;
+    }
+
+    // Set session cookie if session exists
     if (data.session) {
       res.cookie('session', data.session.access_token, {
         httpOnly: true,
-        secure: true, // Always use secure in production
-        sameSite: 'none', // Required for cross-origin requests
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        secure: true,
+        sameSite: 'none',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
         path: '/'
       });
     }
 
-    res.json({ user: data.user });
+    // Return success with appropriate message
+    res.status(200).json({ 
+      user: data.user,
+      message: 'Please check your email to confirm your registration.'
+    });
+
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Signup error:', error);
+    res.status(400).json({ 
+      message: error.message || 'An error occurred during signup'
+    });
   }
 };
 
