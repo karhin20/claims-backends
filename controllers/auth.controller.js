@@ -92,16 +92,34 @@ export const authController = {
   getSession: async (req, res) => {
     try {
       const token = req.cookies.session;
+      
+      // If no token is present, return null session without error
       if (!token) {
-        return res.json({ session: null });
+        return res.status(200).json({ session: null });
       }
 
-      const { data, error } = await supabase.auth.getUser(token);
-      if (error) throw error;
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      
+      if (error) {
+        // Clear invalid cookie
+        res.clearCookie('session');
+        return res.status(200).json({ session: null });
+      }
 
-      res.json({ session: { user: data.user } });
+      // Return valid session
+      res.status(200).json({ 
+        session: { 
+          user,
+          token 
+        } 
+      });
     } catch (error) {
-      res.status(400).json({ message: error.message });
+      // Clear cookie on error
+      res.clearCookie('session');
+      res.status(200).json({ 
+        session: null,
+        error: error.message 
+      });
     }
   },
 }; 
