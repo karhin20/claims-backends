@@ -1,39 +1,74 @@
 import { supabase } from '../config/supabase.js';
 
+// Add input validation
+const validateClaimInput = (data) => {
+  const required = [
+    'claimantName',
+    'claimantId',
+    'email',
+    'phone',
+    'address',
+    'incidentDate',
+    'incidentLocation',
+    'claimType',
+    'claimAmount',
+    'description'
+  ];
+
+  const missing = required.filter(field => !data[field]);
+  if (missing.length > 0) {
+    throw new Error(`Missing required fields: ${missing.join(', ')}`);
+  }
+
+  if (isNaN(data.claimAmount) || data.claimAmount <= 0) {
+    throw new Error('Claim amount must be a positive number');
+  }
+
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(data.email)) {
+    throw new Error('Invalid email format');
+  }
+
+  // Validate phone number format
+  const phoneRegex = /^\+?[\d\s-]{10,}$/;  // Basic international phone format
+  if (!phoneRegex.test(data.phone)) {
+    throw new Error('Invalid phone number format');
+  }
+
+  // Validate date
+  const incidentDate = new Date(data.incidentDate);
+  if (isNaN(incidentDate.getTime()) || incidentDate > new Date()) {
+    throw new Error('Invalid incident date or date is in the future');
+  }
+};
+
 export const createClaim = async (req, res) => {
   try {
-    const {
-      claimantName,
-      claimantId,
-      email,
-      phone,
-      address,
-      incidentDate,
-      incidentLocation,
-      claimType,
-      claimAmount,
-      description
-    } = req.body;
+    validateClaimInput(req.body);
+    
+    // Convert claim amount to number
+    const claimData = {
+      ...req.body,
+      claim_amount: Number(req.body.claimAmount)
+    };
 
-    // Insert claim into Supabase
     const { data, error } = await supabase
       .from('claims')
-      .insert([
-        {
-          claimant_name: claimantName,
-          claimant_id: claimantId,
-          email,
-          phone,
-          address,
-          incident_date: incidentDate,
-          incident_location: incidentLocation,
-          claim_type: claimType,
-          claim_amount: claimAmount,
-          description,
-          status: 'pending',
-          submitted_at: new Date().toISOString()
-        }
-      ])
+      .insert([{
+        claimant_name: claimData.claimantName,
+        claimant_id: claimData.claimantId,
+        email: claimData.email,
+        phone: claimData.phone,
+        address: claimData.address,
+        incident_date: claimData.incidentDate,
+        incident_location: claimData.incidentLocation,
+        claim_type: claimData.claimType,
+        claim_amount: claimData.claim_amount,
+        description: claimData.description,
+        status: 'pending',
+        submitted_at: new Date().toISOString()
+      }])
       .select()
       .single();
 
