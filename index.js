@@ -3,6 +3,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.routes.js'; 
+import claimsRoutes from './routes/claims.routes.js';
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ app.use(cookieParser());
 app.use(express.json());
 
 app.use('/api/auth', authRoutes);
+app.use('/api/claims', claimsRoutes);
 
 // New route to display a message in the browser
 app.get('/', (req, res) => {
