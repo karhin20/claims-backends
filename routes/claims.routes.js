@@ -5,16 +5,20 @@ import {
   getClaimById,
   updateClaim,
   generateApprovalOTP,
-  verifyApprovalOTP
+  verifyApprovalOTP,
+  checkAdmin
 } from '../controllers/claims.controller.js';
 
 const router = Router();
 
-router.post('/', createClaim);
+// Public routes (require authentication but not admin)
 router.get('/', getClaims);
 router.get('/:id', getClaimById);
-router.put('/:id', updateClaim);
-router.post('/:claimId/generate-otp', generateApprovalOTP);
-router.post('/:claimId/verify-otp', verifyApprovalOTP);
+
+// Admin only routes
+router.post('/', checkAdmin, createClaim);
+router.put('/:id', checkAdmin, updateClaim);
+router.post('/:claimId/generate-otp', checkAdmin, generateApprovalOTP);
+router.post('/:claimId/verify-otp', checkAdmin, verifyApprovalOTP);
 
 export default router; 

@@ -44,36 +44,62 @@ const validateClaimInput = (data) => {
   }
 };
 
+// Add admin check middleware
+export const checkAdmin = async (req, res, next) => {
+  try {
+    const { user, error } = await supabase.auth.getUser();
+    
+    if (error) throw error;
+    
+    const { data: adminData } = await supabase
+      .from('users')
+      .select('is_admin')
+      .eq('email', user.email)
+      .single();
+    
+    if (!adminData?.is_admin) {
+      return res.status(403).json({
+        message: 'Access denied. Admin privileges required.'
+      });
+    }
+    
+    next();
+  } catch (error) {
+    console.error('Admin check error:', error);
+    res.status(401).json({
+      message: 'Authentication required'
+    });
+  }
+};
+
+// Update routes to use admin check
 export const createClaim = async (req, res) => {
   try {
     validateClaimInput(req.body);
     
-    // Convert claim amount to number
-    const claimData = {
-      ...req.body,
-      claim_amount: Number(req.body.claimAmount)
-    };
-
     const { data, error } = await supabase
       .from('claims')
       .insert([{
-        claimant_name: claimData.claimantName,
-        claimant_id: claimData.claimantId,
-        email: claimData.email,
-        phone: claimData.phone,
-        address: claimData.address,
-        incident_date: claimData.incidentDate,
-        incident_location: claimData.incidentLocation,
-        claim_type: claimData.claimType,
-        claim_amount: claimData.claim_amount,
-        description: claimData.description,
+        claimant_name: req.body.claimantName,
+        claimant_id: req.body.claimantId,
+        email: req.body.email,
+        phone: req.body.phone,
+        address: req.body.address,
+        incident_date: req.body.incidentDate,
+        incident_location: req.body.incidentLocation,
+        claim_type: req.body.claimType,
+        claim_amount: Number(req.body.claimAmount),
+        description: req.body.description,
         status: 'pending',
         submitted_at: new Date().toISOString()
       }])
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase error:', error);
+      throw error;
+    }
 
     res.status(201).json({
       message: 'Claim submitted successfully',
@@ -213,7 +239,7 @@ export const generateApprovalOTP = async (req, res) => {
     await storeOTP(claimId, otp);
 
     // Prepare SMS message with updated validity period
-    const message = `Claim Approval Request\nClaimant: ${claim.claimant_name}\nAmount: $${claim.claim_amount}\nOTP: ${otp}\nValid for 5 days`;
+    const message = `Claim Approval Request\nClaimant: ${claim.claimant_name}\nAmount: ₵${claim.claim_amount}\nOTP: ${otp}\nValid for 5 days`;
 
     // TODO: Integrate with SMS service
     // For now, just log the message
