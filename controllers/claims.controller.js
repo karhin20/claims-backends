@@ -101,9 +101,19 @@ export const createClaim = async (req, res) => {
       throw error;
     }
 
+    // Transform the data back to camelCase for frontend
+    const transformedData = {
+      id: data.id,
+      claimantName: data.claimant_name,
+      claimantId: data.claimant_id,
+      claimType: data.claim_type,
+      claimAmount: data.claim_amount,
+      ...data
+    };
+
     res.status(201).json({
       message: 'Claim submitted successfully',
-      claim: data
+      claim: transformedData
     });
   } catch (error) {
     console.error('Create claim error:', error);
