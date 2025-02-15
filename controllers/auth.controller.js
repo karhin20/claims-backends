@@ -149,6 +149,33 @@ export const getSession = async (req, res) => {
   }
 };
 
+export const requestPasswordReset = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        message: 'Email is required'
+      });
+    }
+
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${process.env.FRONTEND_URL}/reset-password`
+    });
+
+    if (error) throw error;
+
+    res.json({
+      message: 'Password reset instructions sent to your email'
+    });
+  } catch (error) {
+    console.error('Request password reset error:', error);
+    res.status(400).json({
+      message: error.message || 'Failed to send reset instructions'
+    });
+  }
+};
+
 export const resetPassword = async (req, res) => {
   try {
     const { token, newPassword } = req.body;
@@ -159,30 +186,11 @@ export const resetPassword = async (req, res) => {
       });
     }
 
-    // Verify the reset token
-    const { data: user, error: verifyError } = await supabase.auth
-      .verifyOtp({
-        token_hash: token,
-        type: 'recovery'
-      });
+    const { data, error } = await supabase.auth.updateUser({
+      password: newPassword
+    });
 
-    if (verifyError) {
-      console.error('Token verification error:', verifyError);
-      return res.status(400).json({
-        message: 'Invalid or expired reset token'
-      });
-    }
-
-    // Update the password
-    const { error: updateError } = await supabase.auth
-      .updateUser({
-        password: newPassword
-      });
-
-    if (updateError) {
-      console.error('Password update error:', updateError);
-      throw updateError;
-    }
+    if (error) throw error;
 
     res.json({
       message: 'Password reset successfully'

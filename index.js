@@ -19,7 +19,7 @@ const corsOptions = {
     const allowedOrigins = [
       process.env.FRONTEND_URL,
       'http://localhost:8080',
-      'http://localhost:5173',
+      'https://claimsgh.netlify.app',
       'https://claims-backends.vercel.app'
     ];
     
