@@ -23,11 +23,23 @@ export const errorHandler = (err, req, res, next) => {
     });
   }
 
+  // Handle specific error types
+  if (err.code === '22P02') { // invalid_text_representation
+    return res.status(400).json({
+      message: 'Invalid parameter format'
+    });
+  }
+
+  if (err.code === '42P01') { // undefined_table
+    return res.status(500).json({
+      message: 'Database configuration error'
+    });
+  }
+
   // Default error response
   res.status(err.status || 500).json({
     message: process.env.NODE_ENV === 'production' 
       ? 'Something went wrong' 
-      : err.message,
-    code: err.code
+      : err.message
   });
 }; 

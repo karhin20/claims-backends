@@ -314,14 +314,33 @@ export const verifyApprovalOTP = async (req, res) => {
   }
 };
 
+// Gets statistics for all claims by the current user
 export const getStats = async (req, res) => {
   try {
+    // Get user from session
+    const sessionToken = req.cookies.session;
+    if (!sessionToken) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    // Verify session with Supabase
+    const { data: { user }, error: authError } = await supabase.auth.getUser(sessionToken);
+    if (authError || !user) {
+      return res.status(401).json({ message: 'Invalid session' });
+    }
+
+    // Get claims stats with RLS policy
     const { data, error } = await supabase
       .from('claims')
-      .select('status');
+      .select('id, status')
+      .eq('user_id', user.id);
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error fetching claims stats:', error);
+      return res.status(500).json({ message: 'Failed to fetch claims stats' });
+    }
 
+    // Calculate stats
     const stats = {
       total: data.length,
       pending: data.filter(claim => claim.status === 'pending').length,
@@ -329,26 +348,52 @@ export const getStats = async (req, res) => {
       rejected: data.filter(claim => claim.status === 'rejected').length
     };
 
-    res.json(stats);
+    console.log('Claims stats:', { user_id: user.id, ...stats });
+    return res.json(stats);
   } catch (error) {
-    console.error('Error fetching claims stats:', error);
-    res.status(500).json({ message: 'Failed to fetch claims stats' });
+    console.error('Stats error:', error);
+    return res.status(500).json({ message: 'Failed to fetch claims stats' });
   }
 };
 
+// Gets the 5 most recent claims for the current user
 export const getRecentActivity = async (req, res) => {
   try {
+    // Verify user is authenticated
+    const sessionToken = req.cookies.session;
+    if (!sessionToken) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    // Verify session with Supabase
+    const { data: { user }, error: authError } = await supabase.auth.getUser(sessionToken);
+    if (authError || !user) {
+      return res.status(401).json({ message: 'Invalid session' });
+    }
+
+    // Get recent claims with RLS policy
     const { data, error } = await supabase
       .from('claims')
-      .select('*')
+      .select(`
+        id,
+        status,
+        created_at,
+        title,
+        claimant_name,
+        claim_amount
+      `)
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(5);
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error fetching recent claims:', error);
+      return res.status(500).json({ message: 'Failed to fetch recent claims' });
+    }
 
-    res.json(data);
+    return res.json(data || []);
   } catch (error) {
-    console.error('Error fetching recent claims:', error);
-    res.status(500).json({ message: 'Failed to fetch recent claims' });
+    console.error('Recent activity error:', error);
+    return res.status(500).json({ message: 'Failed to fetch recent claims' });
   }
 }; 

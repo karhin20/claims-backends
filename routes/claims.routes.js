@@ -1,24 +1,30 @@
-import { Router } from 'express';
+import express from 'express';
 import {
-  createClaim,
+  submitClaim,
   getClaims,
-  getClaimById,
   updateClaim,
   generateApprovalOTP,
   verifyApprovalOTP,
-  checkAdmin
+  getStats,
+  getRecentActivity
 } from '../controllers/claims.controller.js';
 
-const router = Router();
+const router = express.Router();
 
-// Public routes (require authentication but not admin)
+// Stats and activity routes must come BEFORE any :id routes
+router.get('/stats', getStats);
+router.get('/recent', getRecentActivity);
+
+// Regular claim routes with :id parameter
 router.get('/', getClaims);
-router.get('/:id', getClaimById);
+router.post('/', submitClaim);
+router.put('/:id([0-9a-fA-F-]{36})', updateClaim);
+router.post('/:id([0-9a-fA-F-]{36})/generate-otp', generateApprovalOTP);
+router.post('/:id([0-9a-fA-F-]{36})/verify-otp', verifyApprovalOTP);
 
-// Admin only routes
-router.post('/', checkAdmin, createClaim);
-router.put('/:id', checkAdmin, updateClaim);
-router.post('/:claimId/generate-otp', checkAdmin, generateApprovalOTP);
-router.post('/:claimId/verify-otp', checkAdmin, verifyApprovalOTP);
+// Catch-all for invalid claim IDs
+router.use('/:id', (req, res) => {
+  res.status(400).json({ message: 'Invalid claim ID format' });
+});
 
 export default router; 
