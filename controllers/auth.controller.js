@@ -35,11 +35,11 @@ export const signUp = async (req, res) => {
       });
     }
 
-    // Only proceed with AdminStaff creation if email is confirmed
+    // Only proceed with admin_staff creation if email is confirmed
     if (data.user && data.user.confirmed_at) {
-      // Insert additional user data into AdminStaff table
+      // Insert additional user data into admin_staff table
       const { error: profileError } = await supabase
-        .from('AdminStaff')
+        .from('admin_staff')
         .insert([
           {
             user_id: data.user.id,
@@ -100,9 +100,9 @@ export const signIn = async (req, res) => {
       return res.status(401).json({ message: 'Authentication failed' });
     }
 
-    // Get additional user data from AdminStaff table
+    // Get additional user data from admin_staff table
     const { data: adminData, error: adminError } = await supabase
-      .from('AdminStaff')
+      .from('admin_staff')
       .select('*')
       .eq('user_id', session.user.id)
       .single();
@@ -112,7 +112,7 @@ export const signIn = async (req, res) => {
       return res.status(500).json({ message: 'Error fetching user data' });
     }
 
-    // Combine Supabase user data with AdminStaff data
+    // Combine Supabase user data with admin_staff data
     const userData = {
       id: session.user.id,
       email: session.user.email,
@@ -180,9 +180,9 @@ export const getSession = async (req, res) => {
       return res.status(401).json({ message: 'Invalid session' });
     }
 
-    // Get additional user data from AdminStaff table
+    // Get additional user data from admin_staff table
     const { data: adminData, error: adminError } = await supabase
-      .from('AdminStaff')
+      .from('admin_staff')
       .select('*')
       .eq('user_id', user.id)
       .single();
@@ -192,7 +192,7 @@ export const getSession = async (req, res) => {
       return res.status(500).json({ message: 'Error fetching user data' });
     }
 
-    // Combine Supabase user data with AdminStaff data
+    // Combine Supabase user data with admin_staff data
     const userData = {
       id: user.id,
       email: user.email,
