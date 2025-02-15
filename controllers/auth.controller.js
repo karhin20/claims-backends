@@ -147,4 +147,50 @@ export const getSession = async (req, res) => {
       error: error.message 
     });
   }
+};
+
+export const resetPassword = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        message: 'Token and new password are required'
+      });
+    }
+
+    // Verify the reset token
+    const { data: user, error: verifyError } = await supabase.auth
+      .verifyOtp({
+        token_hash: token,
+        type: 'recovery'
+      });
+
+    if (verifyError) {
+      console.error('Token verification error:', verifyError);
+      return res.status(400).json({
+        message: 'Invalid or expired reset token'
+      });
+    }
+
+    // Update the password
+    const { error: updateError } = await supabase.auth
+      .updateUser({
+        password: newPassword
+      });
+
+    if (updateError) {
+      console.error('Password update error:', updateError);
+      throw updateError;
+    }
+
+    res.json({
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(400).json({
+      message: error.message || 'Failed to reset password'
+    });
+  }
 }; 
