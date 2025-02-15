@@ -312,4 +312,43 @@ export const verifyApprovalOTP = async (req, res) => {
       message: error.message || 'Failed to verify OTP'
     });
   }
+};
+
+export const getStats = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('claims')
+      .select('status');
+
+    if (error) throw error;
+
+    const stats = {
+      total: data.length,
+      pending: data.filter(claim => claim.status === 'pending').length,
+      approved: data.filter(claim => claim.status === 'approved').length,
+      rejected: data.filter(claim => claim.status === 'rejected').length
+    };
+
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching claims stats:', error);
+    res.status(500).json({ message: 'Failed to fetch claims stats' });
+  }
+};
+
+export const getRecentActivity = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('claims')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (error) throw error;
+
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching recent claims:', error);
+    res.status(500).json({ message: 'Failed to fetch recent claims' });
+  }
 }; 

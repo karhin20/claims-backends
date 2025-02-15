@@ -1,9 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+import { supabase } from '../config/supabase.js';
 
 const REGISTRATION_SECRET_KEY = process.env.REGISTRATION_SECRET_KEY;
 
@@ -26,7 +21,8 @@ export const signUp = async (req, res) => {
           name,
           role,
           phone
-        }
+        },
+        emailRedirectTo: `${process.env.FRONTEND_URL}/dashboard`
       }
     });
 
@@ -104,6 +100,27 @@ export const signIn = async (req, res) => {
       return res.status(401).json({ message: 'Authentication failed' });
     }
 
+    // Get additional user data from AdminStaff table
+    const { data: adminData, error: adminError } = await supabase
+      .from('AdminStaff')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .single();
+
+    if (adminError) {
+      console.error('Error fetching admin data:', adminError);
+      return res.status(500).json({ message: 'Error fetching user data' });
+    }
+
+    // Combine Supabase user data with AdminStaff data
+    const userData = {
+      id: session.user.id,
+      email: session.user.email,
+      name: adminData.name,
+      role: adminData.role,
+      phone: adminData.phone
+    };
+
     // Set session cookie with the access token
     const cookieOptions = {
       httpOnly: true,
@@ -118,7 +135,7 @@ export const signIn = async (req, res) => {
 
     const responseData = { 
       session: {
-        user: session.user,
+        user: userData,
         access_token: session.access_token
       }
     };
@@ -163,9 +180,30 @@ export const getSession = async (req, res) => {
       return res.status(401).json({ message: 'Invalid session' });
     }
 
+    // Get additional user data from AdminStaff table
+    const { data: adminData, error: adminError } = await supabase
+      .from('AdminStaff')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+
+    if (adminError) {
+      console.error('Error fetching admin data:', adminError);
+      return res.status(500).json({ message: 'Error fetching user data' });
+    }
+
+    // Combine Supabase user data with AdminStaff data
+    const userData = {
+      id: user.id,
+      email: user.email,
+      name: adminData.name,
+      role: adminData.role,
+      phone: adminData.phone
+    };
+
     return res.json({ 
       session: {
-        user,
+        user: userData,
         access_token: sessionToken
       }
     });
@@ -180,7 +218,7 @@ export const inviteUser = async (req, res) => {
     const { email } = req.body;
     
     const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${process.env.FRONTEND_URL}/signup?invited=true`,
+      redirectTo: `${process.env.FRONTEND_URL}/dashboard`,
       data: {
         invited: true
       }
@@ -204,7 +242,7 @@ export const requestPasswordReset = async (req, res) => {
     const { email } = req.body;
 
     const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${process.env.FRONTEND_URL}/reset-password`
+      redirectTo: `${process.env.FRONTEND_URL}/dashboard`
     });
 
     if (error) throw error;
@@ -260,7 +298,7 @@ export const signInWithMagicLink = async (req, res) => {
     const { data, error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${process.env.FRONTEND_URL}/claims`,
+        emailRedirectTo: `${process.env.FRONTEND_URL}/dashboard`,
         shouldCreateUser: true,
       }
     });

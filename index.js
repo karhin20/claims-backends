@@ -4,6 +4,8 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.routes.js'; 
 import claimsRoutes from './routes/claims.routes.js';
+import { errorHandler } from './middlewares/error.middleware.js';
+import { requestLogger } from './middlewares/logging.middleware.js';
 
 dotenv.config();
 
@@ -37,6 +39,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// Add logging middleware
+app.use(requestLogger);
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/claims', claimsRoutes);
@@ -46,14 +51,18 @@ app.get('/', (req, res) => {
     res.send('Server is running');
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ 
-    message: 'Something went wrong!',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+// Add this before the error handling middleware
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`, {
+    body: req.body,
+    cookies: req.cookies,
+    headers: req.headers
   });
+  next();
 });
+
+// Error handling should be last
+app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
