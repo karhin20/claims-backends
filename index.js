@@ -12,32 +12,25 @@ const PORT = process.env.PORT || 3000;
 
 // Update CORS configuration
 const corsOptions = {
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      process.env.FRONTEND_URL,
-      'http://localhost:8080',
-      'https://claimsgh.netlify.app',
-      'https://claims-backends.vercel.app'
-    ];
-    
-    if (allowedOrigins.indexOf(origin) === -1) {
-      return callback(new Error('CORS policy violation'), false);
-    }
-    return callback(null, true);
-  },
+  origin: [
+    'https://claimsgh.netlify.app',
+    'http://localhost:8080',
+    'http://localhost:3000'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cookie'],
-  exposedHeaders: ['set-cookie']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  exposedHeaders: ['set-cookie'],
+  maxAge: 86400 // 24 hours
 };
 
+// Apply CORS middleware
 app.use(cors(corsOptions));
 
-// Add preflight handling
+// Handle preflight requests
 app.options('*', cors(corsOptions));
 
+// Parse cookies and JSON
 app.use(cookieParser());
 app.use(express.json());
 
@@ -45,9 +38,18 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/claims', claimsRoutes);
 
-// New route to display a message in the browser
+// Health check route
 app.get('/', (req, res) => {
-    res.send('<p>generated successfully.</p>');
+    res.send('Server is running');
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ 
+    message: 'Something went wrong!',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
 });
 
 app.listen(PORT, () => {
