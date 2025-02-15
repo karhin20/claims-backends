@@ -13,7 +13,6 @@ const PORT = process.env.PORT || 3000;
 // Update CORS configuration
 const corsOptions = {
   origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
     const allowedOrigins = [
@@ -30,7 +29,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cookie'],
   exposedHeaders: ['set-cookie']
 };
 

@@ -81,25 +81,48 @@ export const signIn = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({
+        message: 'Email and password are required'
+      });
+    }
+
+    // Sign in with Supabase
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+      email: email.toLowerCase().trim(),
+      password
     });
 
     if (error) throw error;
 
-    // Set session cookie with proper security settings
+    if (!data.session) {
+      return res.status(401).json({
+        message: 'Invalid credentials'
+      });
+    }
+
+    // Set session cookie
     res.cookie('session', data.session.access_token, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'none',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/'
     });
 
-    res.json({ user: data.user });
+    // Return user data
+    res.json({
+      session: {
+        user: data.user,
+        token: data.session.access_token
+      }
+    });
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Sign in error:', error);
+    res.status(400).json({
+      message: error.message || 'Failed to sign in'
+    });
   }
 };
 
