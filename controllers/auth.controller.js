@@ -149,15 +149,33 @@ export const getSession = async (req, res) => {
   }
 };
 
+export const inviteUser = async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${process.env.FRONTEND_URL}/signup?invited=true`,
+      data: {
+        invited: true
+      }
+    });
+
+    if (error) throw error;
+
+    res.json({
+      message: 'Invitation sent successfully'
+    });
+  } catch (error) {
+    console.error('Invite user error:', error);
+    res.status(400).json({
+      message: error.message || 'Failed to send invitation'
+    });
+  }
+};
+
 export const requestPasswordReset = async (req, res) => {
   try {
     const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({
-        message: 'Email is required'
-      });
-    }
 
     const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${process.env.FRONTEND_URL}/reset-password`
@@ -166,10 +184,10 @@ export const requestPasswordReset = async (req, res) => {
     if (error) throw error;
 
     res.json({
-      message: 'Password reset instructions sent to your email'
+      message: 'Password reset instructions sent'
     });
   } catch (error) {
-    console.error('Request password reset error:', error);
+    console.error('Password reset error:', error);
     res.status(400).json({
       message: error.message || 'Failed to send reset instructions'
     });
@@ -199,6 +217,37 @@ export const resetPassword = async (req, res) => {
     console.error('Reset password error:', error);
     res.status(400).json({
       message: error.message || 'Failed to reset password'
+    });
+  }
+};
+
+export const signInWithMagicLink = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        message: 'Email is required'
+      });
+    }
+
+    const { data, error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${process.env.FRONTEND_URL}/claims`,
+        shouldCreateUser: true,
+      }
+    });
+
+    if (error) throw error;
+
+    res.json({
+      message: 'Magic link sent to your email'
+    });
+  } catch (error) {
+    console.error('Magic link error:', error);
+    res.status(400).json({
+      message: error.message || 'Failed to send magic link'
     });
   }
 }; 

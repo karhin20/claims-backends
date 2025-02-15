@@ -24,14 +24,13 @@ const corsOptions = {
     ];
     
     if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
+      return callback(new Error('CORS policy violation'), false);
     }
     return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
   exposedHeaders: ['set-cookie']
 };
 
