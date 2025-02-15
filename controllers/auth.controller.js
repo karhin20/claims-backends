@@ -6,13 +6,56 @@ export const signUp = async (req, res) => {
   try {
     const { email, password, name, role, phone, registrationKey } = req.body;
 
+    // Enhanced validation
+    if (!email || !password || !name || !role || !registrationKey) {
+      return res.status(400).json({
+        message: 'Missing required fields',
+        required: ['email', 'password', 'name', 'role', 'registrationKey']
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        message: 'Invalid email format'
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 6) {
+      return res.status(400).json({
+        message: 'Password must be at least 6 characters long'
+      });
+    }
+
     // Validate registration key
-    if (!registrationKey || registrationKey !== REGISTRATION_SECRET_KEY) {
+    if (registrationKey !== REGISTRATION_SECRET_KEY) {
+      console.error('Invalid registration key attempt:', { email, registrationKey });
       return res.status(403).json({ 
         message: 'Invalid registration key. You are not authorized to register.' 
       });
     }
 
+    // Check if user already exists in admin_staff
+    const { data: existingStaff, error: staffCheckError } = await supabase
+      .from('admin_staff')
+      .select('id')
+      .eq('email', email)
+      .single();
+
+    if (staffCheckError && staffCheckError.code !== 'PGRST116') {
+      console.error('Staff check error:', staffCheckError);
+      throw staffCheckError;
+    }
+
+    if (existingStaff) {
+      return res.status(400).json({
+        message: 'An account with this email already exists'
+      });
+    }
+
+    // Create user in Supabase auth
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -26,31 +69,33 @@ export const signUp = async (req, res) => {
       }
     });
 
-    if (error) throw error;
-
-    // Check if user needs to confirm their email
-    if (data.user && data.user.identities && data.user.identities.length === 0) {
-      return res.status(400).json({
-        message: 'Email confirmation required. Please check your email.'
-      });
+    if (error) {
+      console.error('Supabase signup error:', error);
+      throw error;
     }
 
-    // Only proceed with admin_staff creation if email is confirmed
-    if (data.user && data.user.confirmed_at) {
-      // Insert additional user data into admin_staff table
-      const { error: profileError } = await supabase
-        .from('admin_staff')
-        .insert([
-          {
-            user_id: data.user.id,
-            name,
-            role,
-            email,
-            phone,
-          }
-        ]);
+    if (!data.user) {
+      throw new Error('User creation failed');
+    }
 
-      if (profileError) throw profileError;
+    // Create admin_staff record
+    const { error: profileError } = await supabase
+      .from('admin_staff')
+      .insert([
+        {
+          user_id: data.user.id,
+          name,
+          role,
+          email: email.toLowerCase(),
+          phone: phone || null,
+        }
+      ]);
+
+    if (profileError) {
+      console.error('Profile creation error:', profileError);
+      // Attempt to clean up auth user if profile creation fails
+      await supabase.auth.admin.deleteUser(data.user.id);
+      throw profileError;
     }
 
     // Set session cookie if session exists
@@ -64,14 +109,29 @@ export const signUp = async (req, res) => {
       });
     }
 
-    // Return success with appropriate message
+    // Return success response
     res.status(200).json({ 
-      user: data.user,
-      message: 'Please check your email to confirm your registration.'
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+        name,
+        role
+      },
+      message: data.session 
+        ? 'Registration successful' 
+        : 'Please check your email to confirm your registration'
     });
 
   } catch (error) {
     console.error('Signup error:', error);
+    
+    // Handle specific error cases
+    if (error.message?.includes('duplicate key')) {
+      return res.status(400).json({ 
+        message: 'An account with this email already exists'
+      });
+    }
+
     res.status(400).json({ 
       message: error.message || 'An error occurred during signup'
     });
