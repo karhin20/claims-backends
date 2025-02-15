@@ -1,4 +1,9 @@
-import { supabase } from '../config/supabase.js'; 
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 const REGISTRATION_SECRET_KEY = process.env.REGISTRATION_SECRET_KEY;
 
@@ -81,48 +86,35 @@ export const signIn = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validate input
-    if (!email || !password) {
-      return res.status(400).json({
-        message: 'Email and password are required'
-      });
-    }
-
-    // Sign in with Supabase
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.toLowerCase().trim(),
-      password
+    const { data: { session }, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase signin error:', error);
+      return res.status(401).json({ message: error.message });
+    }
 
-    if (!data.session) {
-      return res.status(401).json({
-        message: 'Invalid credentials'
-      });
+    if (!session) {
+      return res.status(401).json({ message: 'Authentication failed' });
     }
 
     // Set session cookie
-    res.cookie('session', data.session.access_token, {
+    res.cookie('session', session, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'none',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/'
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
 
-    // Return user data
-    res.json({
-      session: {
-        user: data.user,
-        token: data.session.access_token
-      }
+    return res.json({ 
+      session,
+      user: session.user 
     });
   } catch (error) {
-    console.error('Sign in error:', error);
-    res.status(400).json({
-      message: error.message || 'Failed to sign in'
-    });
+    console.error('Sign in controller error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 };
 
@@ -140,35 +132,26 @@ export const signOut = async (req, res) => {
 
 export const getSession = async (req, res) => {
   try {
-    const token = req.cookies.session;
-    
-    // If no token is present, return null session without error
-    if (!token) {
-      return res.status(200).json({ session: null });
+    const sessionCookie = req.cookies.session;
+
+    if (!sessionCookie) {
+      return res.status(401).json({ message: 'No session found' });
     }
 
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    
-    if (error) {
-      // Clear invalid cookie
+    // Verify session with Supabase
+    const { data: { user }, error } = await supabase.auth.getUser(
+      sessionCookie.access_token
+    );
+
+    if (error || !user) {
       res.clearCookie('session');
-      return res.status(200).json({ session: null });
+      return res.status(401).json({ message: 'Invalid session' });
     }
 
-    // Return valid session
-    res.status(200).json({ 
-      session: { 
-        user,
-        token 
-      } 
-    });
+    return res.json({ session: sessionCookie });
   } catch (error) {
-    // Clear cookie on error
-    res.clearCookie('session');
-    res.status(200).json({ 
-      session: null,
-      error: error.message 
-    });
+    console.error('Get session error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 };
 
