@@ -19,20 +19,23 @@ const corsOptions = {
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-  exposedHeaders: ['set-cookie'],
-  maxAge: 86400 // 24 hours
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cookie'],
+  exposedHeaders: ['Set-Cookie'],
+  maxAge: 86400, // 24 hours
+  sameSite: 'none',
+  secure: true
 };
 
-// Apply CORS middleware
+// Apply CORS middleware before routes
 app.use(cors(corsOptions));
-
-// Handle preflight requests
-app.options('*', cors(corsOptions));
-
-// Parse cookies and JSON
 app.use(cookieParser());
 app.use(express.json());
+
+// Ensure cookies are being set properly
+app.use((req, res, next) => {
+  res.set('Access-Control-Allow-Credentials', 'true');
+  next();
+});
 
 // Routes
 app.use('/api/auth', authRoutes);

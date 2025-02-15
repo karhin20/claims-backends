@@ -84,6 +84,7 @@ export const signUp = async (req, res) => {
 
 export const signIn = async (req, res) => {
   try {
+    console.log('Sign in attempt for:', req.body.email);
     const { email, password } = req.body;
 
     const { data: { session }, error } = await supabase.auth.signInWithPassword({
@@ -91,27 +92,39 @@ export const signIn = async (req, res) => {
       password,
     });
 
+    console.log('Supabase response:', { session: !!session, error });
+
     if (error) {
       console.error('Supabase signin error:', error);
       return res.status(401).json({ message: error.message });
     }
 
     if (!session) {
+      console.error('No session returned from Supabase');
       return res.status(401).json({ message: 'Authentication failed' });
     }
 
-    // Set session cookie
-    res.cookie('session', session, {
+    // Set session cookie with the access token
+    const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
+      secure: true,
+      sameSite: 'none',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/'
+    };
+    
+    console.log('Setting cookie with options:', cookieOptions);
+    res.cookie('session', session.access_token, cookieOptions);
 
-    return res.json({ 
-      session,
-      user: session.user 
-    });
+    const responseData = { 
+      session: {
+        user: session.user,
+        access_token: session.access_token
+      }
+    };
+    console.log('Sending response:', { hasUser: !!responseData.session.user });
+    
+    return res.json(responseData);
   } catch (error) {
     console.error('Sign in controller error:', error);
     res.status(500).json({ message: 'Internal server error' });
@@ -132,23 +145,30 @@ export const signOut = async (req, res) => {
 
 export const getSession = async (req, res) => {
   try {
-    const sessionCookie = req.cookies.session;
+    console.log('Get session request, cookies:', req.cookies);
+    const sessionToken = req.cookies.session;
 
-    if (!sessionCookie) {
+    if (!sessionToken) {
+      console.log('No session token found in cookies');
       return res.status(401).json({ message: 'No session found' });
     }
 
     // Verify session with Supabase
-    const { data: { user }, error } = await supabase.auth.getUser(
-      sessionCookie.access_token
-    );
+    const { data: { user }, error } = await supabase.auth.getUser(sessionToken);
+    console.log('Supabase getUser response:', { hasUser: !!user, error });
 
     if (error || !user) {
+      console.log('Invalid session, clearing cookie');
       res.clearCookie('session');
       return res.status(401).json({ message: 'Invalid session' });
     }
 
-    return res.json({ session: sessionCookie });
+    return res.json({ 
+      session: {
+        user,
+        access_token: sessionToken
+      }
+    });
   } catch (error) {
     console.error('Get session error:', error);
     res.status(500).json({ message: 'Internal server error' });
