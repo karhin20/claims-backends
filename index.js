@@ -2,31 +2,42 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
-import authRoutes from './routes/auth.routes.js'; 
+import authRoutes from './routes/auth.routes.js';
 import claimsRoutes from './routes/claims.routes.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 import { requestLogger } from './middlewares/logging.middleware.js';
-import { verifySession } from './routes/auth.routes.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Define allowed origins
+const allowedOrigins = [
+  'http://localhost:8080',
+  'http://localhost:5173',
+  'https://claimsgh.netlify.app',
+  'https://claims-backends.vercel.app'
+];
+
 const corsOptions = {
-  origin: [
-    'http://localhost:8080',
-    'http://localhost:5173',
-    'https://claimsgh.netlify.app',
-    'https://claims-backends.vercel.app'
-  ],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'Accept', 
-    'Cookie', 
+    'Content-Type',
+    'Authorization',
+    'Accept',
+    'Cookie',
     'X-Requested-With'
   ],
   exposedHeaders: ['Set-Cookie']
@@ -40,23 +51,16 @@ app.use(cookieParser());
 // Add logging middleware
 app.use(requestLogger);
 
+// Add this before the routes
+app.options('*', cors(corsOptions)); // Enable preflight for all routes
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/claims', claimsRoutes);
 
 // Health check route
 app.get('/', (req, res) => {
-    res.send('Server is running');
-});
-
-// Add this before the error handling middleware
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`, {
-    body: req.body,
-    cookies: req.cookies,
-    headers: req.headers
-  });
-  next();
+  res.send('Server is running');
 });
 
 // Error handling should be last
