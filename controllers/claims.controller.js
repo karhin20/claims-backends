@@ -128,12 +128,19 @@ export const createClaim = async (req, res) => {
 
 export const getClaims = async (req, res) => {
   try {
+    // User is already verified by middleware
+    const user = req.user;
+
     const { data, error } = await supabase
       .from('claims')
       .select('*')
+      .eq('user_id', user.id)  // Filter by user_id
       .order('submitted_at', { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase error:', error);
+      throw error;
+    }
 
     res.json({
       claims: data
@@ -320,13 +327,8 @@ export const verifyApprovalOTP = async (req, res) => {
 // Gets statistics for all claims by the current user
 export const getStats = async (req, res) => {
   try {
-    // Get user from session
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return res.status(401).json({ message: 'Authentication required' });
-    }
+    const user = req.user;
 
-    // Get claims stats
     const { data, error } = await supabase
       .from('claims')
       .select('id, status')
@@ -337,7 +339,6 @@ export const getStats = async (req, res) => {
       return res.status(500).json({ message: 'Failed to fetch claims stats' });
     }
 
-    // Calculate stats
     const stats = {
       total: data.length,
       pending: data.filter(claim => claim.status === 'pending').length,

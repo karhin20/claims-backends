@@ -98,16 +98,14 @@ export const signUp = async (req, res) => {
       throw profileError;
     }
 
-    // Set session cookie if session exists
-    if (data.session) {
-      res.cookie('session', data.session.access_token, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'none',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-        path: '/'
-      });
-    }
+    // Set session cookie with correct settings
+    res.cookie('session', data.session.access_token, {
+      httpOnly: true,
+      secure: true, // Always use secure in production
+      sameSite: 'none', // Important for cross-origin requests
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/' // Ensure cookie is available for all paths
+    });
 
     // Return success response
     res.status(200).json({ 
@@ -148,12 +146,13 @@ export const signIn = async (req, res) => {
 
     if (error) throw error;
 
-    // Set session cookie
+    // Set session cookie with correct settings
     res.cookie('session', data.session.access_token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      secure: true, // Always use secure in production
+      sameSite: 'none', // Important for cross-origin requests
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/' // Ensure cookie is available for all paths
     });
 
     // Return session data in the expected format

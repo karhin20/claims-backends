@@ -30,11 +30,19 @@ export const verifySession = async (req, res, next) => {
       return res.status(401).json({ message: 'Authentication required' });
     }
 
+    // Use Supabase's getUser with the session token
     const { data: { user }, error } = await supabase.auth.getUser(sessionToken);
-    if (error || !user) {
+    
+    if (error) {
+      console.error('Auth error:', error);
       return res.status(401).json({ message: 'Invalid session' });
     }
 
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    // Add user to request object
     req.user = user;
     next();
   } catch (error) {
