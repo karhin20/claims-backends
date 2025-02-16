@@ -75,13 +75,10 @@ export const checkAdmin = async (req, res, next) => {
 // Update routes to use admin check
 export const createClaim = async (req, res) => {
   try {
-    validateClaimInput(req.body);
+    // User is already verified by middleware
+    const user = req.user;
     
-    // Get user from session
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return res.status(401).json({ message: 'Authentication required' });
-    }
+    validateClaimInput(req.body);
 
     // Insert claim into database
     const { data, error } = await supabase

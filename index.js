@@ -6,6 +6,7 @@ import authRoutes from './routes/auth.routes.js';
 import claimsRoutes from './routes/claims.routes.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 import { requestLogger } from './middlewares/logging.middleware.js';
+import { verifySession } from './routes/auth.routes.js';
 
 dotenv.config();
 
@@ -41,7 +42,7 @@ app.use(requestLogger);
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/claims', claimsRoutes);
+app.use('/api/claims', verifySession, claimsRoutes);
 
 // Health check route
 app.get('/', (req, res) => {
