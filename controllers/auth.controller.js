@@ -140,71 +140,33 @@ export const signUp = async (req, res) => {
 
 export const signIn = async (req, res) => {
   try {
-    console.log('Sign in attempt for:', req.body.email);
     const { email, password } = req.body;
-
-    const { data: { session }, error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    console.log('Supabase response:', { session: !!session, error });
+    if (error) throw error;
 
-    if (error) {
-      console.error('Supabase signin error:', error);
-      return res.status(401).json({ message: error.message });
-    }
-
-    if (!session) {
-      console.error('No session returned from Supabase');
-      return res.status(401).json({ message: 'Authentication failed' });
-    }
-
-    // Get additional user data from admin_staff table
-    const { data: adminData, error: adminError } = await supabase
-      .from('admin_staff')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .single();
-
-    if (adminError) {
-      console.error('Error fetching admin data:', adminError);
-      return res.status(500).json({ message: 'Error fetching user data' });
-    }
-
-    // Combine Supabase user data with admin_staff data
-    const userData = {
-      id: session.user.id,
-      email: session.user.email,
-      name: adminData.name,
-      role: adminData.role,
-      phone: adminData.phone
-    };
-
-    // Set session cookie with the access token
-    const cookieOptions = {
+    // Set session cookie
+    res.cookie('session', data.session.access_token, {
       httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/'
-    };
-    
-    console.log('Setting cookie with options:', cookieOptions);
-    res.cookie('session', session.access_token, cookieOptions);
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
 
-    const responseData = { 
+    // Return user and session data
+    res.json({
+      user: data.user,
       session: {
-        user: userData,
-        access_token: session.access_token
+        access_token: data.session.access_token,
+        expires_at: data.session.expires_at
       }
-    };
-    console.log('Sending response:', { hasUser: !!responseData.session.user });
-    
-    return res.json(responseData);
+    });
   } catch (error) {
-    console.error('Sign in controller error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    console.error('Sign in error:', error);
+    res.status(401).json({ message: error.message });
   }
 };
 
@@ -213,63 +175,41 @@ export const signOut = async (req, res) => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
 
-    res.clearCookie('session');
+    // Clear the session cookie
+    res.clearCookie('session', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax'
+    });
+
     res.json({ message: 'Signed out successfully' });
   } catch (error) {
+    console.error('Sign out error:', error);
     res.status(400).json({ message: error.message });
   }
 };
 
 export const getSession = async (req, res) => {
   try {
-    console.log('Get session request, cookies:', req.cookies);
     const sessionToken = req.cookies.session;
-
     if (!sessionToken) {
-      console.log('No session token found in cookies');
       return res.status(401).json({ message: 'No session found' });
     }
 
-    // Verify session with Supabase
     const { data: { user }, error } = await supabase.auth.getUser(sessionToken);
-    console.log('Supabase getUser response:', { hasUser: !!user, error });
-
     if (error || !user) {
-      console.log('Invalid session, clearing cookie');
-      res.clearCookie('session');
       return res.status(401).json({ message: 'Invalid session' });
     }
 
-    // Get additional user data from admin_staff table
-    const { data: adminData, error: adminError } = await supabase
-      .from('admin_staff')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
-
-    if (adminError) {
-      console.error('Error fetching admin data:', adminError);
-      return res.status(500).json({ message: 'Error fetching user data' });
-    }
-
-    // Combine Supabase user data with admin_staff data
-    const userData = {
-      id: user.id,
-      email: user.email,
-      name: adminData.name,
-      role: adminData.role,
-      phone: adminData.phone
-    };
-
-    return res.json({ 
+    res.json({
+      user,
       session: {
-        user: userData,
         access_token: sessionToken
       }
     });
   } catch (error) {
     console.error('Get session error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(401).json({ message: 'Session error' });
   }
 };
 
