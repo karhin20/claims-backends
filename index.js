@@ -13,32 +13,20 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const corsOptions = {
-  origin: true, // Allow all origins in development
+  origin: [
+    'http://localhost:8080',
+    'http://localhost:5173',
+    'https://claimsgh.netlify.app',
+    'https://claims-backends.vercel.app'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cookie'],
   exposedHeaders: ['Set-Cookie']
 };
 
-// Ensure CORS is first
+// Make sure CORS is the first middleware
 app.use(cors(corsOptions));
-
-// Add headers middleware for additional CORS support
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  res.header('Access-Control-Allow-Origin', origin);
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cookie');
-  
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-    return;
-  }
-  next();
-});
-
 app.use(express.json());
 app.use(cookieParser());
 

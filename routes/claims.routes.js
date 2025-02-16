@@ -1,6 +1,6 @@
 import express from 'express';
 import {
-  submitClaim,
+  createClaim,
   getClaims,
   updateClaim,
   generateApprovalOTP,
@@ -17,7 +17,7 @@ router.get('/recent', getRecentActivity);
 
 // Regular claim routes with :id parameter
 router.get('/', getClaims);
-router.post('/', submitClaim);
+router.post('/', createClaim);
 router.put('/:id([0-9a-fA-F-]{36})', updateClaim);
 router.post('/:id([0-9a-fA-F-]{36})/generate-otp', generateApprovalOTP);
 router.post('/:id([0-9a-fA-F-]{36})/verify-otp', verifyApprovalOTP);

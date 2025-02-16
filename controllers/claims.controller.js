@@ -77,6 +77,13 @@ export const createClaim = async (req, res) => {
   try {
     validateClaimInput(req.body);
     
+    // Get user from session
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    // Insert claim into database
     const { data, error } = await supabase
       .from('claims')
       .insert([{
@@ -91,7 +98,9 @@ export const createClaim = async (req, res) => {
         claim_amount: Number(req.body.claimAmount),
         description: req.body.description,
         status: 'pending',
-        submitted_at: new Date().toISOString()
+        user_id: user.id,
+        submitted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }])
       .select()
       .single();
@@ -101,19 +110,25 @@ export const createClaim = async (req, res) => {
       throw error;
     }
 
-    // Transform the data back to camelCase for frontend
-    const transformedData = {
-      id: data.id,
-      claimantName: data.claimant_name,
-      claimantId: data.claimant_id,
-      claimType: data.claim_type,
-      claimAmount: data.claim_amount,
-      ...data
-    };
+    // Handle file uploads if any
+    if (req.body.supportingDocuments?.length > 0) {
+      const filePromises = req.body.supportingDocuments.map(async (file) => {
+        const { error: uploadError } = await supabase.storage
+          .from('claim-documents')
+          .upload(`${data.id}/${file.name}`, file);
+          
+        if (uploadError) {
+          console.error('File upload error:', uploadError);
+          throw uploadError;
+        }
+      });
+
+      await Promise.all(filePromises);
+    }
 
     res.status(201).json({
       message: 'Claim submitted successfully',
-      claim: transformedData
+      claim: data
     });
   } catch (error) {
     console.error('Create claim error:', error);
