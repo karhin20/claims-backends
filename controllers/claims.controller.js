@@ -333,18 +333,12 @@ export const verifyApprovalOTP = async (req, res) => {
 export const getStats = async (req, res) => {
   try {
     // Get user from session
-    const sessionToken = req.cookies.session;
-    if (!sessionToken) {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
       return res.status(401).json({ message: 'Authentication required' });
     }
 
-    // Verify session with Supabase
-    const { data: { user }, error: authError } = await supabase.auth.getUser(sessionToken);
-    if (authError || !user) {
-      return res.status(401).json({ message: 'Invalid session' });
-    }
-
-    // Get claims stats with RLS policy
+    // Get claims stats
     const { data, error } = await supabase
       .from('claims')
       .select('id, status')
@@ -363,7 +357,6 @@ export const getStats = async (req, res) => {
       rejected: data.filter(claim => claim.status === 'rejected').length
     };
 
-    console.log('Claims stats:', { user_id: user.id, ...stats });
     return res.json(stats);
   } catch (error) {
     console.error('Stats error:', error);
@@ -374,16 +367,10 @@ export const getStats = async (req, res) => {
 // Gets the 5 most recent claims for the current user
 export const getRecentActivity = async (req, res) => {
   try {
-    // Verify user is authenticated
-    const sessionToken = req.cookies.session;
-    if (!sessionToken) {
-      return res.status(401).json({ message: 'Authentication required' });
-    }
-
-    // Verify session with Supabase
-    const { data: { user }, error: authError } = await supabase.auth.getUser(sessionToken);
+    // Get user from session
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
-      return res.status(401).json({ message: 'Invalid session' });
+      return res.status(401).json({ message: 'Authentication required' });
     }
 
     // Get recent claims with RLS policy
@@ -391,14 +378,14 @@ export const getRecentActivity = async (req, res) => {
       .from('claims')
       .select(`
         id,
-        status,
-        created_at,
-        title,
         claimant_name,
-        claim_amount
+        claim_type,
+        claim_amount,
+        status,
+        submitted_at
       `)
       .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+      .order('submitted_at', { ascending: false })
       .limit(5);
 
     if (error) {
