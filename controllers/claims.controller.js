@@ -4,15 +4,15 @@ import otpGenerator from 'otp-generator';
 // Add input validation
 const validateClaimInput = (data) => {
   const required = [
-    'claimantName',
-    'claimantId',
+    'claimant_name',
+    'claimant_id',
     'email',
     'phone',
     'address',
-    'incidentDate',
-    'incidentLocation',
-    'claimType',
-    'claimAmount',
+    'incident_date',
+    'incident_location',
+    'claim_type',
+    'claim_amount',
     'description'
   ];
 
@@ -21,7 +21,7 @@ const validateClaimInput = (data) => {
     throw new Error(`Missing required fields: ${missing.join(', ')}`);
   }
 
-  if (isNaN(data.claimAmount) || data.claimAmount <= 0) {
+  if (isNaN(data.claim_amount) || data.claim_amount <= 0) {
     throw new Error('Claim amount must be a positive number');
   }
 
@@ -38,8 +38,8 @@ const validateClaimInput = (data) => {
   }
 
   // Validate date
-  const incidentDate = new Date(data.incidentDate);
-  if (isNaN(incidentDate.getTime()) || incidentDate > new Date()) {
+  const incident_date = new Date(data.incident_date);
+  if (isNaN(incident_date.getTime()) || incident_date > new Date()) {
     throw new Error('Invalid incident date or date is in the future');
   }
 };
@@ -87,16 +87,7 @@ export const createClaim = async (req, res) => {
     const { data, error } = await supabase
       .from('claims')
       .insert([{
-        claimant_name: req.body.claimantName,
-        claimant_id: req.body.claimantId,
-        email: req.body.email,
-        phone: req.body.phone,
-        address: req.body.address,
-        incident_date: req.body.incidentDate,
-        incident_location: req.body.incidentLocation,
-        claim_type: req.body.claimType,
-        claim_amount: Number(req.body.claimAmount),
-        description: req.body.description,
+        ...req.body,
         status: 'pending',
         user_id: user.id,
         submitted_at: new Date().toISOString(),
@@ -111,8 +102,8 @@ export const createClaim = async (req, res) => {
     }
 
     // Handle file uploads if any
-    if (req.body.supportingDocuments?.length > 0) {
-      const filePromises = req.body.supportingDocuments.map(async (file) => {
+    if (req.body.supporting_documents?.length > 0) {
+      const filePromises = req.body.supporting_documents.map(async (file) => {
         const { error: uploadError } = await supabase.storage
           .from('claim-documents')
           .upload(`${data.id}/${file.name}`, file);
