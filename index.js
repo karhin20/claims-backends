@@ -13,13 +13,19 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const corsOptions = {
-  origin: ['http://localhost:8080', 'http://localhost:5173', 'https://claimsgh.netlify.app'],
+  origin: [
+    'http://localhost:8080',
+    'http://localhost:5173',
+    'https://claimsgh.netlify.app',
+    'https://claims-backends.vercel.app'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cookie'],
+  exposedHeaders: ['Set-Cookie']
 };
 
-// Apply middlewares in the correct order
+// Move CORS middleware to be first
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
