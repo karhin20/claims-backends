@@ -1,5 +1,7 @@
 import { supabase } from '../config/supabase.js';
 import otpGenerator from 'otp-generator';
+import nodemailer from 'nodemailer';
+import twilio from 'twilio';
 
 // Add input validation
 const validateClaimInput = (data) => {
@@ -71,6 +73,20 @@ export const checkAdmin = async (req, res, next) => {
     });
   }
 };
+
+// Add email and SMS configuration
+const emailTransporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD
+  }
+});
+
+const twilioClient = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
 
 // Update routes to use admin check
 export const createClaim = async (req, res) => {
@@ -204,127 +220,11 @@ export const updateClaim = async (req, res) => {
   }
 };
 
-// Replace the simple generateOTP function with this more secure version
-const generateOTP = () => {
-  return otpGenerator.generate(6, {
-    digits: true,
-    alphabets: false,
-    upperCase: false,
-    specialChars: false
-  });
-};
-
-// Store OTP with expiration (we'll add this to the claims table)
-const storeOTP = async (claimId, otp) => {
-  try {
-    const { error } = await supabase
-      .from('claims')
-      .update({
-        approval_otp: otp,
-        otp_expires_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days expiry
-      })
-      .eq('id', claimId);
-
-    if (error) throw error;
-  } catch (error) {
-    console.error('Error storing OTP:', error);
-    throw error;
-  }
-};
-
-export const generateApprovalOTP = async (req, res) => {
-  try {
-    const { claimId } = req.params;
-    
-    // Get claim details
-    const { data: claim, error: claimError } = await supabase
-      .from('claims')
-      .select('*')
-      .eq('id', claimId)
-      .single();
-
-    if (claimError) throw claimError;
-
-    // Generate OTP
-    const otp = generateOTP();
-    
-    // Store OTP in database
-    await storeOTP(claimId, otp);
-
-    // Prepare SMS message with updated validity period
-    const message = `Claim Approval Request\nClaimant: ${claim.claimant_name}\nAmount: ₵${claim.claim_amount}\nOTP: ${otp}\nValid for 5 days`;
-
-    // TODO: Integrate with SMS service
-    // For now, just log the message
-    console.log('SMS Message to be sent:', message);
-
-    res.json({
-      message: 'OTP generated successfully',
-      // In production, don't send OTP in response
-      otp: process.env.NODE_ENV === 'development' ? otp : undefined
-    });
-  } catch (error) {
-    console.error('Generate OTP error:', error);
-    res.status(400).json({
-      message: error.message || 'Failed to generate OTP'
-    });
-  }
-};
-
-export const verifyApprovalOTP = async (req, res) => {
-  try {
-    const { claimId } = req.params;
-    const { otp } = req.body;
-
-    const { data: claim, error: claimError } = await supabase
-      .from('claims')
-      .select('*')
-      .eq('id', claimId)
-      .single();
-
-    if (claimError) throw claimError;
-
-    // Check if OTP matches and hasn't expired
-    if (!claim.approval_otp || claim.approval_otp !== otp) {
-      return res.status(400).json({ message: 'Invalid OTP' });
-    }
-
-    if (new Date(claim.otp_expires_at) < new Date()) {
-      return res.status(400).json({ message: 'OTP has expired' });
-    }
-
-    // Update claim status and clear OTP
-    const { error: updateError } = await supabase
-      .from('claims')
-      .update({
-        status: 'approved',
-        approval_otp: null,
-        otp_expires_at: null,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', claimId);
-
-    if (updateError) throw updateError;
-
-    res.json({
-      message: 'Claim approved successfully'
-    });
-  } catch (error) {
-    console.error('Verify OTP error:', error);
-    res.status(400).json({
-      message: error.message || 'Failed to verify OTP'
-    });
-  }
-};
-
 // Gets statistics for all claims by the current user
 export const getStats = async (req, res) => {
   try {
-    // Get user from session
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return res.status(401).json({ message: 'Authentication required' });
-    }
+    // User is already verified by middleware
+    const user = req.user;
 
     // Get claims stats
     const { data, error } = await supabase
@@ -355,11 +255,8 @@ export const getStats = async (req, res) => {
 // Gets the 5 most recent claims for the current user
 export const getRecentActivity = async (req, res) => {
   try {
-    // Get user from session
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return res.status(401).json({ message: 'Authentication required' });
-    }
+    // User is already verified by middleware
+    const user = req.user;
 
     // Get recent claims with RLS policy
     const { data, error } = await supabase
@@ -385,5 +282,123 @@ export const getRecentActivity = async (req, res) => {
   } catch (error) {
     console.error('Recent activity error:', error);
     return res.status(500).json({ message: 'Failed to fetch recent claims' });
+  }
+};
+
+// Update the generateOTP function
+export const generateApprovalOTP = async (req, res) => {
+  try {
+    const { claimId } = req.params;
+    if (!claimId) {
+      return res.status(400).json({ message: 'Claim ID is required' });
+    }
+
+    // Get claim details
+    const { data: claim, error: claimError } = await supabase
+      .from('claims')
+      .select('*')
+      .eq('id', claimId)
+      .single();
+
+    if (claimError || !claim) {
+      return res.status(404).json({ message: 'Claim not found' });
+    }
+
+    // Generate OTP
+    const otp = otpGenerator.generate(6, {
+      digits: true,
+      alphabets: false,
+      upperCase: false,
+      specialChars: false
+    });
+
+    // Store OTP in database
+    const { error: otpError } = await supabase
+      .from('approval_otps')
+      .insert([{
+        claim_id: claimId,
+        otp: otp,
+        expires_at: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes expiry
+      }]);
+
+    if (otpError) {
+      throw otpError;
+    }
+
+    // Send OTP via email
+    await emailTransporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: claim.email,
+      subject: 'Claim Approval OTP',
+      text: `Your OTP for claim approval is: ${otp}. This code will expire in 15 minutes.`
+    });
+
+    // Send OTP via SMS
+    await twilioClient.messages.create({
+      body: `Your ClaimsGH OTP is: ${otp}. Valid for 15 minutes.`,
+      to: claim.phone,
+      from: process.env.TWILIO_PHONE_NUMBER
+    });
+
+    res.json({ message: 'OTP sent successfully' });
+  } catch (error) {
+    console.error('Generate OTP error:', error);
+    res.status(500).json({ message: error.message || 'Failed to generate OTP' });
+  }
+};
+
+// Update the verifyOTP function
+export const verifyApprovalOTP = async (req, res) => {
+  try {
+    const { claimId } = req.params;
+    const { otp } = req.body;
+
+    if (!claimId || !otp) {
+      return res.status(400).json({ message: 'Claim ID and OTP are required' });
+    }
+
+    // Verify OTP
+    const { data: otpData, error: otpError } = await supabase
+      .from('approval_otps')
+      .select('*')
+      .eq('claim_id', claimId)
+      .eq('otp', otp)
+      .gt('expires_at', new Date().toISOString())
+      .single();
+
+    if (otpError || !otpData) {
+      return res.status(400).json({ message: 'Invalid or expired OTP' });
+    }
+
+    // Update claim status
+    const { data: claim, error: updateError } = await supabase
+      .from('claims')
+      .update({ status: 'approved', updated_at: new Date().toISOString() })
+      .eq('id', claimId)
+      .select()
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // Send approval confirmation
+    await emailTransporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: claim.email,
+      subject: 'Claim Approved',
+      text: `Your claim (ID: ${claim.id}) has been approved. Amount: ₵${claim.claim_amount}`
+    });
+
+    await twilioClient.messages.create({
+      body: `Your claim (ID: ${claim.id}) has been approved. Amount: ₵${claim.claim_amount}`,
+      to: claim.phone,
+      from: process.env.TWILIO_PHONE_NUMBER
+    });
+
+    res.json({ message: 'Claim approved successfully', claim });
+  } catch (error) {
+    console.error('Verify OTP error:', error);
+    res.status(500).json({ message: error.message || 'Failed to verify OTP' });
   }
 }; 

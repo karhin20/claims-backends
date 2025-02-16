@@ -42,7 +42,7 @@ app.use(requestLogger);
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/claims', verifySession, claimsRoutes);
+app.use('/api/claims', claimsRoutes);
 
 // Health check route
 app.get('/', (req, res) => {
