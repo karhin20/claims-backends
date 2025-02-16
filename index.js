@@ -21,7 +21,13 @@ const corsOptions = {
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cookie'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'Accept', 
+    'Cookie', 
+    'X-Requested-With'
+  ],
   exposedHeaders: ['Set-Cookie']
 };
 
