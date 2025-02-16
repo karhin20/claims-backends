@@ -12,30 +12,33 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Update CORS configuration
+// CORS configuration
 const corsOptions = {
   origin: [
-    'https://claimsgh.netlify.app',
     'http://localhost:8080',
-    'http://localhost:3000'
+    'http://localhost:5173',
+    'https://claimsgh.netlify.app'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cookie'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cookie', 'X-Requested-With'],
   exposedHeaders: ['Set-Cookie'],
   maxAge: 86400, // 24 hours
-  sameSite: 'none',
-  secure: true
 };
 
-// Apply CORS middleware before routes
+// Apply middlewares in the correct order
 app.use(cors(corsOptions));
-app.use(cookieParser());
 app.use(express.json());
+app.use(cookieParser());
 
-// Ensure cookies are being set properly
+// Cookie settings middleware
 app.use((req, res, next) => {
-  res.set('Access-Control-Allow-Credentials', 'true');
+  res.cookie('cookieName', 'cookieValue', {
+    sameSite: 'none',
+    secure: true,
+    httpOnly: true,
+    domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined
+  });
   next();
 });
 
