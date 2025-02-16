@@ -156,11 +156,14 @@ export const signIn = async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
 
-    // Return user and session data
+    // Return session data in the expected format
     res.json({
-      user: data.user,
       session: {
+        user: data.user,
         access_token: data.session.access_token,
+        token_type: "bearer",
+        expires_in: 3600,
+        refresh_token: data.session.refresh_token,
         expires_at: data.session.expires_at
       }
     });
@@ -201,10 +204,13 @@ export const getSession = async (req, res) => {
       return res.status(401).json({ message: 'Invalid session' });
     }
 
+    // Return session data in the expected format
     res.json({
-      user,
       session: {
-        access_token: sessionToken
+        user,
+        access_token: sessionToken,
+        token_type: "bearer",
+        expires_in: 3600
       }
     });
   } catch (error) {
