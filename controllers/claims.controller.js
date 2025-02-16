@@ -32,7 +32,7 @@ const validateClaimInput = (data) => {
   }
 
   // Validate phone number format
-  const phoneRegex = /^\+?[\d\s-]{10,}$/;  // Basic international phone format
+  const phoneRegex = /^\+?[\d\s-]{10,}$/;
   if (!phoneRegex.test(data.phone)) {
     throw new Error('Invalid phone number format');
   }
