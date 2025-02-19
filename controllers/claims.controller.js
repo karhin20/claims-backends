@@ -140,6 +140,13 @@ export const checkAdmin = async (req, res, next) => {
 // Update routes to use admin check
 export const createClaim = async (req, res) => {
   try {
+    // Add debug logging
+    console.log('Request cookies:', req.cookies);
+    console.log('Request headers:', req.headers);
+    
+    // Set credentials header
+    res.header('Access-Control-Allow-Credentials', 'true');
+
     // User is already verified by middleware
     const user = req.user;
     
@@ -193,13 +200,20 @@ export const createClaim = async (req, res) => {
 
 export const getClaims = async (req, res) => {
   try {
+    // Add debug logging
+    console.log('Request cookies:', req.cookies);
+    console.log('Request headers:', req.headers);
+    
+    // Set credentials header
+    res.header('Access-Control-Allow-Credentials', 'true');
+
     // User is already verified by middleware
     const user = req.user;
 
     const { data, error } = await supabase
       .from('claims')
       .select('*')
-      .eq('user_id', user.id)  // Filter by user_id
+      .eq('user_id', user.id)
       .order('submitted_at', { ascending: false });
 
     if (error) {
@@ -497,11 +511,4 @@ export const getRecentActivity = async (req, res) => {
     console.error('Recent activity error:', error);
     return res.status(500).json({ message: 'Failed to fetch recent claims' });
   }
-};
-
-// Add to the beginning of each controller method
-console.log('Request cookies:', req.cookies);
-console.log('Request headers:', req.headers);
-
-// Add to response
-res.header('Access-Control-Allow-Credentials', 'true'); 
+}; 
