@@ -1,5 +1,70 @@
 import { supabase } from '../config/supabase.js';
 import otpGenerator from 'otp-generator';
+import nodemailer from 'nodemailer';
+import fetch from 'node-fetch';
+
+// Configure nodemailer
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  secure: true,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  }
+});
+
+// Function to send SMS via Arkesel
+const sendSMS = async (phone, message) => {
+  try {
+    const apiKey = process.env.ARKESEL_API_KEY;
+    const response = await fetch('https://sms.arkesel.com/api/v2/sms/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': apiKey
+      },
+      body: JSON.stringify({
+        sender: "ClaimsGH",
+        message: message,
+        recipients: [phone],
+        // When sending to Nigerian numbers
+        // use_case: 'transactional'
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'SMS sending failed');
+    }
+
+    const data = await response.json();
+    console.log('SMS sent successfully:', data);
+    return data;
+  } catch (error) {
+    console.error('SMS sending error:', error);
+    throw error;
+  }
+};
+
+// Function to send email
+const sendEmail = async (email, subject, message) => {
+  try {
+    await transporter.sendMail({
+      from: '"ClaimsGH" <noreply@claimsgh.com>',
+      to: email,
+      subject,
+      text: message,
+      html: `<div style="font-family: Arial, sans-serif;">
+        <h2>Claim Approval OTP</h2>
+        <p>${message}</p>
+      </div>`
+    });
+  } catch (error) {
+    console.error('Email sending error:', error);
+    throw error;
+  }
+};
 
 // Add input validation
 const validateClaimInput = (data) => {
@@ -221,105 +286,198 @@ const generateOTP = () => {
   });
 };
 
-// Store OTP with expiration (we'll add this to the claims table)
-const storeOTP = async (claimId, otp) => {
-  try {
-    const { error } = await supabase
-      .from('claims')
-      .update({
-        approval_otp: otp,
-        otp_expires_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days expiry
-      })
-      .eq('id', claimId);
-
-    if (error) throw error;
-  } catch (error) {
-    console.error('Error storing OTP:', error);
-    throw error;
-  }
-};
-
 export const generateApprovalOTP = async (req, res) => {
   try {
-    const { claimId } = req.params;
+    const { id } = req.params;
+    const user = req.user;  // Get authenticated user
     
-    // Get claim details
+    console.log('Generate OTP request:', {
+      claimId: id,
+      userId: user.id,
+      timestamp: new Date().toISOString()
+    });
+    
+    // First verify the claim exists and is pending
     const { data: claim, error: claimError } = await supabase
       .from('claims')
       .select('*')
-      .eq('id', claimId)
+      .eq('id', id)
+      // Optionally add user check
+      // .eq('user_id', user.id)  // Uncomment if claims should be user-specific
       .single();
 
-    if (claimError) throw claimError;
+    if (claimError) {
+      console.error('Database error fetching claim:', claimError);
+      return res.status(400).json({
+        message: 'Failed to fetch claim details',
+        error: claimError.message,
+        details: {
+          claimId: id,
+          userId: user.id,
+          error: claimError
+        }
+      });
+    }
 
-    // Generate OTP
+    if (!claim) {
+      console.error('No claim found with ID:', id);
+      return res.status(404).json({
+        message: 'Claim not found',
+        details: `No claim found with ID: ${id}`
+      });
+    }
+
+    if (claim.status !== 'pending') {
+      return res.status(400).json({
+        message: 'Only pending claims can be approved',
+        details: `Current status: ${claim.status}`
+      });
+    }
+
+    // Generate new OTP
     const otp = generateOTP();
+    console.log('Generated OTP:', otp, 'for claim:', id);
     
-    // Store OTP in database
-    await storeOTP(claimId, otp);
+    // Store in otps table with logging
+    const { data: otpData, error: otpError } = await supabase
+      .from('otps')
+      .insert({
+        claim_id: id,
+        otp: otp,
+        expires_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+      })
+      .select()
+      .single();
 
-    // Prepare SMS message with updated validity period
-    const message = `Claim Approval Request\nClaimant: ${claim.claimant_name}\nAmount: ₵${claim.claim_amount}\nOTP: ${otp}\nValid for 5 days`;
+    if (otpError) {
+      console.error('Error storing OTP:', otpError);
+      return res.status(500).json({
+        message: 'Failed to generate verification code',
+        error: otpError.message
+      });
+    }
 
-    // TODO: Integrate with SMS service
-    // For now, just log the message
-    console.log('SMS Message to be sent:', message);
+    console.log('Successfully stored OTP in database:', {
+      otp_id: otpData.id,
+      claim_id: otpData.claim_id,
+      expires_at: otpData.expires_at
+    });
+
+    // Prepare notification message
+    const message = `ClaimsGH: Your verification code is ${otp}. Amount: GHS${claim.claim_amount}. Valid for 5 days. Do not share this code.`;
+
+    try {
+      // Send notifications
+      const notifications = [];
+      if (claim.phone) {
+        const formattedPhone = claim.phone.startsWith('233') ? 
+          claim.phone : 
+          `233${claim.phone.replace(/^0+/, '')}`;
+        notifications.push(sendSMS(formattedPhone, message));
+      }
+      if (claim.email) {
+        notifications.push(
+          sendEmail(
+            claim.email,
+            'Claim Verification Code',
+            message
+          )
+        );
+      }
+
+      await Promise.all(notifications);
+    } catch (notificationError) {
+      console.error('Notification error:', notificationError);
+      // Continue even if notifications fail
+    }
 
     res.json({
-      message: 'OTP generated successfully',
-      // In production, don't send OTP in response
-      otp: process.env.NODE_ENV === 'development' ? otp : undefined
+      message: 'Verification code sent successfully',
+      otp: process.env.NODE_ENV === 'development' ? otp : undefined,
+      claim_id: id
     });
   } catch (error) {
     console.error('Generate OTP error:', error);
-    res.status(400).json({
-      message: error.message || 'Failed to generate OTP'
+    res.status(500).json({
+      message: 'Failed to send verification code',
+      error: error.message
     });
   }
 };
 
 export const verifyApprovalOTP = async (req, res) => {
   try {
-    const { claimId } = req.params;
+    const { id } = req.params;
     const { otp } = req.body;
 
-    const { data: claim, error: claimError } = await supabase
-      .from('claims')
+    // Get the latest valid OTP from otps table
+    const { data: otpRecord, error: otpError } = await supabase
+      .from('otps')
       .select('*')
-      .eq('id', claimId)
+      .eq('claim_id', id)
+      .eq('otp', otp)
+      .is('used_at', null)
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single();
 
-    if (claimError) throw claimError;
-
-    // Check if OTP matches and hasn't expired
-    if (!claim.approval_otp || claim.approval_otp !== otp) {
-      return res.status(400).json({ message: 'Invalid OTP' });
+    if (otpError || !otpRecord) {
+      return res.status(400).json({ 
+        message: 'Invalid or expired verification code' 
+      });
     }
 
-    if (new Date(claim.otp_expires_at) < new Date()) {
-      return res.status(400).json({ message: 'OTP has expired' });
-    }
+    // Mark OTP as used
+    const { error: updateOtpError } = await supabase
+      .from('otps')
+      .update({ used_at: new Date().toISOString() })
+      .eq('id', otpRecord.id);
 
-    // Update claim status and clear OTP
-    const { error: updateError } = await supabase
+    if (updateOtpError) throw updateOtpError;
+
+    // Update claim status
+    const { data: claim, error: updateClaimError } = await supabase
       .from('claims')
       .update({
         status: 'approved',
-        approval_otp: null,
-        otp_expires_at: null,
         updated_at: new Date().toISOString()
       })
-      .eq('id', claimId);
+      .eq('id', id)
+      .select()
+      .single();
 
-    if (updateError) throw updateError;
+    if (updateClaimError) throw updateClaimError;
+
+    // Send confirmation notifications
+    const confirmMessage = `Your claim (Reference: ${claim.claimant_id}) has been verified and approved for payment of ₵${claim.claim_amount}. Payment will be processed shortly.`;
+
+    const notifications = [];
+    if (claim.phone) {
+      const formattedPhone = claim.phone.startsWith('233') ? 
+        claim.phone : 
+        `233${claim.phone.replace(/^0+/, '')}`;
+      notifications.push(sendSMS(formattedPhone, confirmMessage));
+    }
+    if (claim.email) {
+      notifications.push(
+        sendEmail(
+          claim.email,
+          'Claim Approved for Payment',
+          confirmMessage
+        )
+      );
+    }
+
+    await Promise.all(notifications);
 
     res.json({
-      message: 'Claim approved successfully'
+      message: 'Claim verified and approved for payment'
     });
   } catch (error) {
     console.error('Verify OTP error:', error);
     res.status(400).json({
-      message: error.message || 'Failed to verify OTP'
+      message: error.message || 'Failed to verify claim'
     });
   }
 };
@@ -386,5 +544,33 @@ export const getRecentActivity = async (req, res) => {
   } catch (error) {
     console.error('Recent activity error:', error);
     return res.status(500).json({ message: 'Failed to fetch recent claims' });
+  }
+};
+
+// Add a function to check OTP status (for debugging)
+export const checkOTPStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { data: otps, error } = await supabase
+      .from('otps')
+      .select('*')
+      .eq('claim_id', id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({
+      message: 'OTP status retrieved',
+      otps: otps
+    });
+  } catch (error) {
+    console.error('Check OTP status error:', error);
+    res.status(500).json({
+      message: 'Failed to check OTP status',
+      error: error.message
+    });
   }
 }; 
