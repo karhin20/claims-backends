@@ -480,9 +480,17 @@ export const getStats = async (req, res) => {
 // Gets the 5 most recent claims for the current user
 export const getRecentActivity = async (req, res) => {
   try {
-    // Get user from session
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    // Add debug logging
+    console.log('Request cookies:', req.cookies);
+    console.log('Request headers:', req.headers);
+    
+    // Set credentials header
+    res.header('Access-Control-Allow-Credentials', 'true');
+
+    // Use the user from middleware instead of fetching again
+    const user = req.user;
+    if (!user) {
+      console.error('No user found in request');
       return res.status(401).json({ message: 'Authentication required' });
     }
 
