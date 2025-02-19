@@ -466,16 +466,13 @@ export const getStats = async (req, res) => {
 // Gets the 5 most recent claims for the current user
 export const getRecentActivity = async (req, res) => {
   try {
-    // User is already verified by auth middleware
-    const user = req.user;
-
-    if (!user) {
-      return res.status(401).json({ 
-        message: 'Authentication required' 
-      });
+    // Get user from session
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return res.status(401).json({ message: 'Authentication required' });
     }
 
-    // Get recent claims
+    // Get recent claims with RLS policy
     const { data, error } = await supabase
       .from('claims')
       .select(`
@@ -492,19 +489,19 @@ export const getRecentActivity = async (req, res) => {
 
     if (error) {
       console.error('Error fetching recent claims:', error);
-      return res.status(500).json({ 
-        message: 'Failed to fetch recent claims' 
-      });
+      return res.status(500).json({ message: 'Failed to fetch recent claims' });
     }
 
-    // Return empty array if no data
     return res.json(data || []);
-
   } catch (error) {
     console.error('Recent activity error:', error);
-    return res.status(500).json({ 
-      message: 'Failed to fetch recent claims',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    return res.status(500).json({ message: 'Failed to fetch recent claims' });
   }
-}; 
+};
+
+// Add to the beginning of each controller method
+console.log('Request cookies:', req.cookies);
+console.log('Request headers:', req.headers);
+
+// Add to response
+res.header('Access-Control-Allow-Credentials', 'true'); 
