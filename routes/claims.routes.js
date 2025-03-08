@@ -6,23 +6,29 @@ import {
   generateApprovalOTP,
   verifyApprovalOTP,
   getStats,
-  getRecentActivity
+  getRecentActivity,
+  getClaimById
 } from '../controllers/claims.controller.js';
+import { verifySession, requireAdmin } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-// Stats and activity routes must come BEFORE any :id routes
+// Apply verifySession middleware to all routes
+router.use(verifySession);
+
+// Stats and activity routes
 router.get('/stats', getStats);
 router.get('/recent', getRecentActivity);
 
-// Regular claim routes with :id parameter
-router.get('/', getClaims);
-router.post('/', createClaim);
-router.put('/:id', updateClaim);
-router.post('/:id/generate-otp', generateApprovalOTP);
-router.post('/:id/verify-otp', verifyApprovalOTP);
+// Admin-only routes
+router.get('/', requireAdmin, getClaims);
+router.post('/', requireAdmin, createClaim);
+router.put('/:id', requireAdmin, updateClaim);
+router.post('/:id/generate-otp', requireAdmin, generateApprovalOTP);
+router.post('/:id/verify-otp', requireAdmin, verifyApprovalOTP);
+router.get('/:id', requireAdmin, getClaimById);
 
-// Update the UUID validation regex if needed
+// Update the UUID validation regex
 router.param('id', (req, res, next, id) => {
   if (!id.match(/^[0-9a-fA-F-]{36}$/)) {
     return res.status(400).json({ message: 'Invalid claim ID format' });

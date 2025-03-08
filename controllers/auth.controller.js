@@ -22,41 +22,51 @@ export const signUp = async (req, res) => {
       });
     }
 
-    // Validate password strength
-    if (password.length < 6) {
+    // Enhanced password strength validation
+    if (password.length < 8) {
       return res.status(400).json({
-        message: 'Password must be at least 6 characters long'
+        message: 'Password must be at least 8 characters long'
+      });
+    }
+    
+    // Check for password complexity
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasNumbers = /\d/.test(password);
+    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+    
+    if (!(hasUpperCase && hasLowerCase && hasNumbers && hasSpecialChar)) {
+      return res.status(400).json({
+        message: 'Password must include uppercase, lowercase, numbers, and special characters'
       });
     }
 
     // Validate registration key
     if (registrationKey !== REGISTRATION_SECRET_KEY) {
-      console.error('Invalid registration key attempt:', { email, registrationKey });
       return res.status(403).json({ 
         message: 'Invalid registration key. You are not authorized to register.' 
       });
     }
 
-    // Check if user already exists in admin_staff
-    const { data: existingStaff, error: staffCheckError } = await supabase
+    // Check if user already exists
+    const { data: existingUser, error: existingUserError } = await supabase
       .from('admin_staff')
       .select('id')
       .eq('email', email)
       .single();
 
-    if (staffCheckError && staffCheckError.code !== 'PGRST116') {
-      console.error('Staff check error:', staffCheckError);
-      throw staffCheckError;
+    if (existingUserError && existingUserError.code !== 'PGRST116') {
+      throw existingUserError;
     }
 
-    if (existingStaff) {
+    if (existingUser) {
       return res.status(400).json({
         message: 'An account with this email already exists'
       });
     }
 
-    // Create user in Supabase auth
-    const { data, error } = await supabase.auth.signUp({
+    // Step 1: Create user in Supabase auth
+    const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -64,66 +74,82 @@ export const signUp = async (req, res) => {
           name,
           role,
           phone
-        },
-        emailRedirectTo: `${process.env.FRONTEND_URL}/dashboard`
+        }
       }
     });
 
-    if (error) {
-      console.error('Supabase signup error:', error);
-      throw error;
+    if (authError) {
+      throw authError;
     }
 
-    if (!data.user) {
+    if (!authData.user) {
       throw new Error('User creation failed');
     }
 
-    // Create admin_staff record
-    const { error: profileError } = await supabase
-      .from('admin_staff')
-      .insert([
-        {
-          user_id: data.user.id,
-          name,
-          role,
-          email: email.toLowerCase(),
-          phone: phone || null,
-        }
-      ]);
+    // Verify user creation
+    const maxRetries = 5;
+    let retryCount = 0;
+    let userExists = false;
 
-    if (profileError) {
-      console.error('Profile creation error:', profileError);
-      // Attempt to clean up auth user if profile creation fails
-      await supabase.auth.admin.deleteUser(data.user.id);
-      throw profileError;
+    while (retryCount < maxRetries) {
+      const { data: verifyUser } = await supabase.auth.admin.getUserById(authData.user.id);
+      if (verifyUser) {
+        userExists = true;
+        break;
+      }
+      retryCount++;
+      const delay = Math.pow(2, retryCount) * 100; // Exponential backoff
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
 
-    // Set session cookie with correct settings
-    res.cookie('session', data.session.access_token, {
-      httpOnly: true,
-      secure: true, // Always use secure in production
-      sameSite: 'none', // Important for cross-origin requests
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/' // Ensure cookie is available for all paths
-    });
+    if (!userExists) {
+      throw new Error('User creation not confirmed after retries');
+    }
+
+    // Step 2: Create admin_staff record
+    const { data: staffData, error: staffError } = await supabase
+      .from('admin_staff')
+      .insert([{
+        user_id: authData.user.id,
+        name,
+        role,
+        email: email.toLowerCase(),
+        phone: phone || null,
+      }])
+      .select()
+      .single();
+
+    if (staffError) {
+      // Cleanup: Delete auth user if staff creation fails
+      await supabase.auth.admin.deleteUser(authData.user.id);
+      throw new Error(`Staff record creation failed: ${staffError.message}`);
+    }
+
+    // Set session cookie if session exists
+    if (authData.session) {
+      res.cookie('session', authData.session.access_token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        path: '/'
+      });
+    }
 
     // Return success response
     res.status(200).json({ 
       user: {
-        id: data.user.id,
-        email: data.user.email,
+        id: authData.user.id,
+        email: authData.user.email,
         name,
         role
       },
-      message: data.session 
+      message: authData.session 
         ? 'Registration successful' 
         : 'Please check your email to confirm your registration'
     });
 
   } catch (error) {
-    console.error('Signup error:', error);
-    
-    // Handle specific error cases
     if (error.message?.includes('duplicate key')) {
       return res.status(400).json({ 
         message: 'An account with this email already exists'
@@ -136,187 +162,141 @@ export const signUp = async (req, res) => {
   }
 };
 
+export const getSession = async (req, res) => {
+  try {
+    // Get the session token from cookies
+    const sessionToken = req.cookies.session;
+    
+    if (!sessionToken) {
+      return res.json({ session: null });
+    }
+
+    // Verify the session token with Supabase
+    const { data: { user }, error } = await supabase.auth.getUser(sessionToken);
+
+    if (error || !user) {
+      // Clear the invalid session cookie
+      res.clearCookie('session', {
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+      });
+      return res.json({ session: null });
+    }
+
+    // Get additional user data from admin_staff table
+    const { data: staffData, error: staffError } = await supabase
+      .from('admin_staff')
+      .select('name, role, phone')
+      .eq('user_id', user.id)
+      .single();
+
+    if (staffError) {
+      console.error('Error fetching staff data:', staffError);
+    }
+
+    // Return the session with combined user data
+    const session = {
+      access_token: sessionToken,
+      user: {
+        ...user,
+        name: staffData?.name || user.user_metadata?.name,
+        role: staffData?.role || user.user_metadata?.role,
+        phone: staffData?.phone || user.user_metadata?.phone
+      }
+    };
+
+    return res.json({ session });
+  } catch (error) {
+    console.error('Get session error:', error);
+    return res.status(500).json({ 
+      message: 'Failed to get session',
+      error: error.message 
+    });
+  }
+};
+
 export const signIn = async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        message: 'Email and password are required'
+      });
+    }
+
+    // Sign in with Supabase
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.toLowerCase(),
       password,
     });
 
     if (error) throw error;
 
-    // Set session cookie with correct settings
+    if (!data.session) {
+      throw new Error('No session returned from authentication');
+    }
+
+    // Set the session cookie
     res.cookie('session', data.session.access_token, {
       httpOnly: true,
-      secure: true, // Always use secure in production
-      sameSite: 'none', // Important for cross-origin requests
+      secure: true,
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/' // Ensure cookie is available for all paths
+      path: '/'
     });
 
-    // Return session data in the expected format
+    // Get additional user data from admin_staff table
+    const { data: staffData, error: staffError } = await supabase
+      .from('admin_staff')
+      .select('name, role, phone')
+      .eq('user_id', data.user.id)
+      .single();
+
+    if (staffError) {
+      console.error('Error fetching staff data:', staffError);
+    }
+
+    // Return success with session and user data
     res.json({
       session: {
-        user: data.user,
-        access_token: data.session.access_token,
-        token_type: "bearer",
-        expires_in: 3600,
-        refresh_token: data.session.refresh_token,
-        expires_at: data.session.expires_at
+        ...data.session,
+        user: {
+          ...data.user,
+          name: staffData?.name || data.user.user_metadata?.name,
+          role: staffData?.role || data.user.user_metadata?.role,
+          phone: staffData?.phone || data.user.user_metadata?.phone
+        }
       }
     });
+
   } catch (error) {
     console.error('Sign in error:', error);
-    res.status(401).json({ message: error.message });
+    res.status(401).json({
+      message: error.message || 'Authentication failed'
+    });
   }
 };
 
 export const signOut = async (req, res) => {
   try {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-
     // Clear the session cookie
     res.clearCookie('session', {
-      httpOnly: true,
+      path: '/',
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax'
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
     });
+
+    // Sign out from Supabase
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
 
     res.json({ message: 'Signed out successfully' });
   } catch (error) {
     console.error('Sign out error:', error);
-    res.status(400).json({ message: error.message });
-  }
-};
-
-export const getSession = async (req, res) => {
-  try {
-    const sessionToken = req.cookies.session;
-    if (!sessionToken) {
-      return res.status(401).json({ message: 'No session found' });
-    }
-
-    const { data: { user }, error } = await supabase.auth.getUser(sessionToken);
-    if (error || !user) {
-      return res.status(401).json({ message: 'Invalid session' });
-    }
-
-    // Return session data in the expected format
-    res.json({
-      session: {
-        user,
-        access_token: sessionToken,
-        token_type: "bearer",
-        expires_in: 3600
-      }
-    });
-  } catch (error) {
-    console.error('Get session error:', error);
-    res.status(401).json({ message: 'Session error' });
-  }
-};
-
-export const inviteUser = async (req, res) => {
-  try {
-    const { email } = req.body;
-    
-    const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${process.env.FRONTEND_URL}/dashboard`,
-      data: {
-        invited: true
-      }
-    });
-
-    if (error) throw error;
-
-    res.json({
-      message: 'Invitation sent successfully'
-    });
-  } catch (error) {
-    console.error('Invite user error:', error);
-    res.status(400).json({
-      message: error.message || 'Failed to send invitation'
+    res.status(500).json({
+      message: error.message || 'Failed to sign out'
     });
   }
 };
-
-export const requestPasswordReset = async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${process.env.FRONTEND_URL}/dashboard`
-    });
-
-    if (error) throw error;
-
-    res.json({
-      message: 'Password reset instructions sent'
-    });
-  } catch (error) {
-    console.error('Password reset error:', error);
-    res.status(400).json({
-      message: error.message || 'Failed to send reset instructions'
-    });
-  }
-};
-
-export const resetPassword = async (req, res) => {
-  try {
-    const { token, newPassword } = req.body;
-
-    if (!token || !newPassword) {
-      return res.status(400).json({
-        message: 'Token and new password are required'
-      });
-    }
-
-    const { data, error } = await supabase.auth.updateUser({
-      password: newPassword
-    });
-
-    if (error) throw error;
-
-    res.json({
-      message: 'Password reset successfully'
-    });
-  } catch (error) {
-    console.error('Reset password error:', error);
-    res.status(400).json({
-      message: error.message || 'Failed to reset password'
-    });
-  }
-};
-
-export const signInWithMagicLink = async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({
-        message: 'Email is required'
-      });
-    }
-
-    const { data, error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${process.env.FRONTEND_URL}/dashboard`,
-        shouldCreateUser: true,
-      }
-    });
-
-    if (error) throw error;
-
-    res.json({
-      message: 'Magic link sent to your email'
-    });
-  } catch (error) {
-    console.error('Magic link error:', error);
-    res.status(400).json({
-      message: error.message || 'Failed to send magic link'
-    });
-  }
-}; 

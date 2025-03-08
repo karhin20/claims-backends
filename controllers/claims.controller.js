@@ -2,6 +2,9 @@ import { supabase } from '../config/supabase.js';
 import otpGenerator from 'otp-generator';
 import nodemailer from 'nodemailer';
 import fetch from 'node-fetch';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 // Configure nodemailer
 const transporter = nodemailer.createTransport({
@@ -12,6 +15,25 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
   }
+});
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  }
+});
+
+const upload = multer({ 
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
 });
 
 // Function to send SMS via Arkesel
@@ -140,55 +162,73 @@ export const checkAdmin = async (req, res, next) => {
 // Update routes to use admin check
 export const createClaim = async (req, res) => {
   try {
-    // Add debug logging
-    console.log('Request cookies:', req.cookies);
-    console.log('Request headers:', req.headers);
-    
-    // Set credentials header
-    res.header('Access-Control-Allow-Credentials', 'true');
-
-    // User is already verified by middleware
-    const user = req.user;
-    
-    validateClaimInput(req.body);
-
-    // Insert claim into database
-    const { data, error } = await supabase
-      .from('claims')
-      .insert([{
-        ...req.body,
-        status: 'pending',
-        user_id: user.id,
-        submitted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Supabase error:', error);
-      throw error;
-    }
-
-    // Handle file uploads if any
-    if (req.body.supporting_documents?.length > 0) {
-      const filePromises = req.body.supporting_documents.map(async (file) => {
-        const { error: uploadError } = await supabase.storage
-          .from('claim-documents')
-          .upload(`${data.id}/${file.name}`, file);
-          
-        if (uploadError) {
-          console.error('File upload error:', uploadError);
-          throw uploadError;
+    // Handle file upload with multer middleware
+    upload.array('files')(req, res, async (err) => {
+      if (err) {
+        return res.status(400).json({
+          message: err.message || 'File upload failed'
+        });
+      }
+      
+      // Debug logging
+      console.log('Request cookies:', req.cookies);
+      console.log('Request headers:', req.headers);
+      console.log('Files received:', req.files?.length || 0);
+      
+      // Set credentials header
+      res.header('Access-Control-Allow-Credentials', 'true');
+  
+      // User is already verified by middleware
+      const user = req.user;
+      
+      // Get claim data from form or JSON
+      let claimData;
+      if (req.body.claimData) {
+        // Parse the JSON string from FormData
+        try {
+          claimData = JSON.parse(req.body.claimData);
+        } catch (e) {
+          return res.status(400).json({
+            message: 'Invalid claim data format'
+          });
         }
+      } else {
+        claimData = req.body;
+      }
+      
+      validateClaimInput(claimData);
+  
+      // Process uploaded files
+      const fileInfos = req.files?.map(file => ({
+        name: file.originalname,
+        path: file.path,
+        size: file.size,
+        mimetype: file.mimetype
+      })) || [];
+  
+      // Insert claim into database
+      const { data, error } = await supabase
+        .from('claims')
+        .insert([{
+          ...claimData,
+          status: 'pending',
+          user_id: user.id,
+          submitted_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          supporting_documents: fileInfos.length > 0 ? fileInfos : null
+        }])
+        .select()
+        .single();
+  
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+  
+      res.status(201).json({
+        message: 'Claim submitted successfully',
+        claim: data
       });
-
-      await Promise.all(filePromises);
-    }
-
-    res.status(201).json({
-      message: 'Claim submitted successfully',
-      claim: data
     });
   } catch (error) {
     console.error('Create claim error:', error);
@@ -200,35 +240,20 @@ export const createClaim = async (req, res) => {
 
 export const getClaims = async (req, res) => {
   try {
-    // Add debug logging
-    console.log('Request cookies:', req.cookies);
-    console.log('Request headers:', req.headers);
-    
-    // Set credentials header
-    res.header('Access-Control-Allow-Credentials', 'true');
-
-    // User is already verified by middleware
-    const user = req.user;
-
+    // Fetch all claims
     const { data, error } = await supabase
       .from('claims')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('submitted_at', { ascending: false });
+      .select('*');
 
     if (error) {
-      console.error('Supabase error:', error);
-      throw error;
+      console.error('Error fetching claims:', error);
+      return res.status(500).json({ message: 'Failed to fetch claims' });
     }
 
-    res.json({
-      claims: data
-    });
+    return res.json(data);
   } catch (error) {
     console.error('Get claims error:', error);
-    res.status(400).json({
-      message: error.message || 'Failed to fetch claims'
-    });
+    return res.status(500).json({ message: 'Failed to fetch claims' });
   }
 };
 
@@ -304,70 +329,105 @@ export const generateApprovalOTP = async (req, res) => {
   try {
     const { id } = req.params;
     
-    // First verify the claim exists and is pending
+    // Generate a 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Create the base OTP object
+    const otpData = {
+      claim_id: id,
+      otp,
+      expires_at: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString() // 3 days expiry
+    };
+    
+    // Add created_by if we have a user in the request
+    if (req.user && req.user.id) {
+      otpData.created_by = req.user.id;
+    }
+    
+    // Store OTP in database with expiration
+    const { data, error } = await supabase
+      .from('otps')
+      .insert(otpData);
+      
+    if (error) {
+      console.error('Error storing OTP:', error);
+      
+      // If the error is about the created_by column, try again without it
+      if (error.message && error.message.includes('created_by')) {
+        delete otpData.created_by;
+        
+        const { data: retryData, error: retryError } = await supabase
+          .from('otps')
+          .insert(otpData);
+          
+        if (retryError) throw retryError;
+      } else {
+        throw error;
+      }
+    }
+    
+    // Get claim details for the notification
     const { data: claim, error: claimError } = await supabase
       .from('claims')
       .select('*')
       .eq('id', id)
       .single();
-
-    if (claimError || !claim) {
-      throw new Error('Claim not found');
-    }
-
-    if (claim.status !== 'pending') {
-      throw new Error('Only pending claims can be approved');
-    }
-
-    // Generate new OTP
-    const otp = generateOTP();
+      
+    if (claimError) throw claimError;
     
-    // Store in otps table
-    const { error: otpError } = await supabase
-      .from('otps')
-      .insert({
-        claim_id: id,
-        otp: otp,
-        expires_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+    // Update claim status to approved
+    const { error: updateError } = await supabase
+      .from('claims')
+      .update({
+        status: 'approved',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
+      
+    if (updateError) throw updateError;
+    
+    try {
+      // Prepare notification message with OTP
+      const message = `Your claim (Reference: ${claim.claimant_id}) for ₵${claim.claim_amount} has been approved. Your verification code is: ${otp}. Valid for 3 days.`;
+      
+      // Send notifications
+      const notifications = [];
+      if (claim.phone) {
+        const formattedPhone = claim.phone.startsWith('233') ? 
+          claim.phone : 
+          `233${claim.phone.replace(/^0+/, '')}`;
+        notifications.push(sendSMS(formattedPhone, message));
+      }
+      if (claim.email) {
+        notifications.push(
+          sendEmail(
+            claim.email,
+            'Claim Approved - Verification Code',
+            message
+          )
+        );
+      }
+      
+      await Promise.all(notifications);
+      
+      res.status(200).json({ 
+        message: 'Claim approved and verification code sent successfully',
+        // For development only - remove in production
+        otp: process.env.NODE_ENV === 'development' ? otp : undefined
       });
-
-    if (otpError) {
-      console.error('Error storing OTP:', otpError);
-      throw new Error('Failed to generate verification code');
+    } catch (emailError) {
+      console.error('Notification sending failed:', emailError);
+      
+      // Return success with OTP for development/testing
+      res.status(200).json({ 
+        message: 'Claim approved but notification failed. OTP generated successfully.',
+        otp: process.env.NODE_ENV === 'development' ? otp : undefined,
+        emailError: process.env.NODE_ENV === 'development' ? emailError.message : undefined
+      });
     }
-
-    // Prepare notification message
-    const message = `ClaimsGH: Your verification code is ${otp}. Amount: GHS${claim.claim_amount}. Valid for 5 days. Do not share this code.`;
-
-    // Send notifications
-    const notifications = [];
-    if (claim.phone) {
-      const formattedPhone = claim.phone.startsWith('233') ? 
-        claim.phone : 
-        `233${claim.phone.replace(/^0+/, '')}`;
-      notifications.push(sendSMS(formattedPhone, message));
-    }
-    if (claim.email) {
-      notifications.push(
-        sendEmail(
-          claim.email,
-          'Claim Verification Code',
-          message
-        )
-      );
-    }
-
-    await Promise.all(notifications);
-
-    res.json({
-      message: 'Verification code sent successfully',
-      otp: process.env.NODE_ENV === 'development' ? otp : undefined
-    });
   } catch (error) {
     console.error('Generate OTP error:', error);
-    res.status(400).json({
-      message: error.message || 'Failed to send verification code'
-    });
+    res.status(400).json({ message: error.message || 'Failed to generate OTP' });
   }
 };
 
@@ -376,7 +436,11 @@ export const verifyApprovalOTP = async (req, res) => {
     const { id } = req.params;
     const { otp } = req.body;
 
-    // Get the latest valid OTP from otps table
+    if (!otp) {
+      return res.status(400).json({ message: 'OTP is required' });
+    }
+
+    // Get the latest valid OTP using claim UUID
     const { data: otpRecord, error: otpError } = await supabase
       .from('otps')
       .select('*')
@@ -395,18 +459,16 @@ export const verifyApprovalOTP = async (req, res) => {
     }
 
     // Mark OTP as used
-    const { error: updateOtpError } = await supabase
+    await supabase
       .from('otps')
       .update({ used_at: new Date().toISOString() })
       .eq('id', otpRecord.id);
 
-    if (updateOtpError) throw updateOtpError;
-
-    // Update claim status
+    // Update claim status to confirmed
     const { data: claim, error: updateClaimError } = await supabase
       .from('claims')
       .update({
-        status: 'approved',
+        status: 'confirmed',
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
@@ -416,29 +478,34 @@ export const verifyApprovalOTP = async (req, res) => {
     if (updateClaimError) throw updateClaimError;
 
     // Send confirmation notifications
-    const confirmMessage = `Your claim (Reference: ${claim.claimant_id}) has been verified and approved for payment of ₵${claim.claim_amount}. Payment will be processed shortly.`;
+    try {
+      const confirmMessage = `Your claim (Reference: ${claim.claimant_id}) has been verified and confirmed for payment of ₵${claim.claim_amount}. Payment will be processed shortly.`;
 
-    const notifications = [];
-    if (claim.phone) {
-      const formattedPhone = claim.phone.startsWith('233') ? 
-        claim.phone : 
-        `233${claim.phone.replace(/^0+/, '')}`;
-      notifications.push(sendSMS(formattedPhone, confirmMessage));
-    }
-    if (claim.email) {
-      notifications.push(
-        sendEmail(
-          claim.email,
-          'Claim Approved for Payment',
-          confirmMessage
-        )
-      );
-    }
+      const notifications = [];
+      if (claim.phone) {
+        const formattedPhone = claim.phone.startsWith('233') ? 
+          claim.phone : 
+          `233${claim.phone.replace(/^0+/, '')}`;
+        notifications.push(sendSMS(formattedPhone, confirmMessage));
+      }
+      if (claim.email) {
+        notifications.push(
+          sendEmail(
+            claim.email,
+            'Claim Confirmed for Payment',
+            confirmMessage
+          )
+        );
+      }
 
-    await Promise.all(notifications);
+      await Promise.all(notifications);
+    } catch (notificationError) {
+      console.error('Failed to send notifications:', notificationError);
+      // Continue with the response even if notifications fail
+    }
 
     res.json({
-      message: 'Claim verified and approved for payment'
+      message: 'Claim verified and confirmed for payment'
     });
   } catch (error) {
     console.error('Verify OTP error:', error);
@@ -451,46 +518,51 @@ export const verifyApprovalOTP = async (req, res) => {
 // Gets statistics for all claims by the current user
 export const getStats = async (req, res) => {
   try {
-    const user = req.user;
-
+    // Get all claims
     const { data, error } = await supabase
       .from('claims')
-      .select('id, status')
-      .eq('user_id', user.id);
-
-    if (error) {
-      console.error('Error fetching claims stats:', error);
-      return res.status(500).json({ message: 'Failed to fetch claims stats' });
-    }
-
-    const stats = {
-      total: data.length,
-      pending: data.filter(claim => claim.status === 'pending').length,
-      approved: data.filter(claim => claim.status === 'approved').length,
-      rejected: data.filter(claim => claim.status === 'rejected').length
-    };
-
-    return res.json(stats);
+      .select('*');
+      
+    if (error) throw error;
+    
+    // Calculate stats
+    const total = data.length;
+    const pending = data.filter(claim => claim.status === 'pending').length;
+    const reviewing = data.filter(claim => claim.status === 'reviewing').length;
+    const approved = data.filter(claim => claim.status === 'approved').length;
+    const confirmed = data.filter(claim => claim.status === 'confirmed').length;
+    const rejected = data.filter(claim => claim.status === 'rejected').length;
+    const paid = data.filter(claim => claim.status === 'paid').length;
+    
+    // Calculate total amount
+    const totalAmount = data.reduce((sum, claim) => {
+      return sum + (typeof claim.claim_amount === 'number' ? claim.claim_amount : 0);
+    }, 0);
+    
+    res.json({
+      total,
+      pending,
+      reviewing,
+      approved,
+      confirmed,
+      rejected,
+      paid,
+      totalAmount
+    });
   } catch (error) {
-    console.error('Stats error:', error);
-    return res.status(500).json({ message: 'Failed to fetch claims stats' });
+    console.error('Get stats error:', error);
+    res.status(400).json({
+      message: error.message || 'Failed to fetch stats'
+    });
   }
 };
 
 // Gets the 5 most recent claims for the current user
 export const getRecentActivity = async (req, res) => {
   try {
-    // Add debug logging
-    console.log('Request cookies:', req.cookies);
-    console.log('Request headers:', req.headers);
-    
-    // Set credentials header
-    res.header('Access-Control-Allow-Credentials', 'true');
-
-    // Use the user from middleware instead of fetching again
-    const user = req.user;
-    if (!user) {
-      console.error('No user found in request');
+    // Get user from session
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
       return res.status(401).json({ message: 'Authentication required' });
     }
 
