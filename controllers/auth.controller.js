@@ -282,21 +282,19 @@ export const signIn = async (req, res) => {
 export const signOut = async (req, res) => {
   try {
     // Clear the session cookie
-    res.clearCookie('session', {
-      path: '/',
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    res.clearCookie('session');
+    
+    // If using JWT, you might want to add the token to a blacklist
+    // or simply rely on the client removing the token
+    
+    return res.json({
+      success: true,
+      message: 'Signed out successfully'
     });
-
-    // Sign out from Supabase
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-
-    res.json({ message: 'Signed out successfully' });
   } catch (error) {
     console.error('Sign out error:', error);
-    res.status(500).json({
-      message: error.message || 'Failed to sign out'
+    return res.status(500).json({
+      message: 'Failed to sign out'
     });
   }
 };
