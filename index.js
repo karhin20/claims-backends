@@ -15,6 +15,7 @@ const PORT = process.env.PORT || 3000;
 const corsOptions = {
   origin: [
     'http://localhost:8080',
+    'http://localhost:5173',
     'https://claimsgh.netlify.app',
     'https://claims-backends.vercel.app'
   ],
