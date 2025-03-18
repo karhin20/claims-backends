@@ -15,18 +15,20 @@ const PORT = process.env.PORT || 3000;
 const corsOptions = {
   origin: [
     'http://localhost:8080',
-    'http://localhost:5173',
     'https://claimsgh.netlify.app',
     'https://claims-backends.vercel.app'
   ],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type', 
     'Authorization', 
     'Accept', 
     'Cookie', 
-    'X-Requested-With'
+    'X-Requested-With',
+    'Cache-Control',
+    'Pragma',
+    'Expires'
   ],
   exposedHeaders: ['Set-Cookie']
 };
